@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 
 from agent_dynamic_system.config import SimulationConfig
 from agent_dynamic_system.controllers import (
+    LookAheadMiniSimulationController,
     NoControl,
     PIGrassController,
     RuleBasedStabilityController,
@@ -51,6 +52,7 @@ def main() -> None:
         Scenario("baseline", lambda config: NoControl()),
         Scenario("control_theory", lambda config: PIGrassController()),
         Scenario("rule_based", lambda config: RuleBasedStabilityController()),
+        Scenario("look_ahead", lambda config: LookAheadMiniSimulationController()),
     ]
 
     results = [
@@ -60,6 +62,8 @@ def main() -> None:
     summary = summarize_results(results, config)
 
     output_dir = args.output_dir
+    if not output_dir.is_absolute():
+        output_dir = ROOT / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     written = []
     for result in results:

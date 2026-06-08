@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, List, Optional, Sequence
 
 from agent_dynamic_system.config import SimulationConfig
 
@@ -29,6 +29,16 @@ class Controller:
 
     def act(self, observation: Observation) -> ControlAction:
         raise NotImplementedError
+
+    def act_with_state(
+        self,
+        observation: Observation,
+        grass: Any,
+        rabbits: Sequence[Any],
+        foxes: Sequence[Any],
+        config: SimulationConfig,
+    ) -> ControlAction:
+        return self.act(observation)
 
 
 class NoControl(Controller):
@@ -145,6 +155,219 @@ class RuleBasedStabilityController(Controller):
         return ControlAction(
             fertilizer_fraction=min(max(amount, 0.0), self._max_fertilizer_fraction),
         )
+
+
+class LookAheadMiniSimulationController(Controller):
+    """Random shooting controller using short internal ecosystem rollouts."""
+
+    name = "look_ahead"
+
+    def __init__(
+        self,
+        planning_horizon: int = 10,
+        random_rollouts: int = 24,
+        minimum_improvement: float = 0.002,
+    ) -> None:
+        self.planning_horizon = planning_horizon
+        self.random_rollouts = random_rollouts
+        self.minimum_improvement = minimum_improvement
+        self._target_rabbits = 1.0
+        self._target_foxes = 1.0
+        self._rabbit_safety = 0.0
+        self._fox_safety = 0.0
+        self._max_cut_fraction = 0.0
+        self._max_fertilizer_fraction = 0.0
+        self._rng = None
+
+    def reset(self, config: SimulationConfig, seed: int) -> None:
+        import numpy as np
+
+        self._target_rabbits = float(config.initial_rabbits)
+        self._target_foxes = float(config.initial_foxes)
+        self._rabbit_safety = float(config.rabbit_safety_threshold)
+        self._fox_safety = float(config.fox_safety_threshold)
+        self._max_cut_fraction = config.max_cut_fraction
+        self._max_fertilizer_fraction = config.max_fertilizer_fraction
+        self._rng = np.random.default_rng(seed + 910_013)
+
+    def act(self, observation: Observation) -> ControlAction:
+        return ControlAction()
+
+    def act_with_state(
+        self,
+        observation: Observation,
+        grass: Any,
+        rabbits: Sequence[Any],
+        foxes: Sequence[Any],
+        config: SimulationConfig,
+    ) -> ControlAction:
+        if self._rng is None:
+            self.reset(config, 0)
+
+        candidate_plans = self._candidate_plans()
+        scored = [
+            (
+                self._score_plan(
+                    plan,
+                    observation,
+                    config,
+                ),
+                plan[0],
+            )
+            for plan in candidate_plans
+        ]
+        scored.sort(key=lambda item: item[0])
+
+        do_nothing_score = self._score_plan(
+            [ControlAction()] * self.planning_horizon,
+            observation,
+            config,
+        )
+        best_score, best_action = scored[0]
+        if do_nothing_score - best_score < self.minimum_improvement:
+            return ControlAction()
+        return best_action
+
+    def _candidate_plans(self) -> List[List[ControlAction]]:
+        plans = [
+            [ControlAction()] * self.planning_horizon,
+            [self._cut(0.08)] * self.planning_horizon,
+            [self._cut(0.18)] * self.planning_horizon,
+            [self._fertilize(0.08)] * self.planning_horizon,
+            [self._fertilize(0.16)] * self.planning_horizon,
+        ]
+        for _ in range(self.random_rollouts):
+            plans.append(self._random_plan())
+        return plans
+
+    def _random_plan(self) -> List[ControlAction]:
+        plan = []
+        for _ in range(self.planning_horizon):
+            draw = float(self._rng.random())
+            if draw < 0.30:
+                plan.append(ControlAction())
+            elif draw < 0.68:
+                plan.append(self._cut(float(self._rng.uniform(0.02, 0.24))))
+            else:
+                plan.append(self._fertilize(float(self._rng.uniform(0.02, 0.18))))
+        return plan
+
+    def _score_plan(
+        self,
+        plan: Sequence[ControlAction],
+        observation: Observation,
+        config: SimulationConfig,
+    ) -> float:
+        import numpy as np
+
+        grass_biomass = float(observation.grass_biomass)
+        rabbits = float(observation.rabbits)
+        foxes = float(observation.foxes)
+        previous_rabbits = rabbits
+        previous_foxes = foxes
+        scores = []
+
+        for action in plan:
+            grass_biomass, rabbits, foxes = self._aggregate_step(
+                grass_biomass,
+                rabbits,
+                foxes,
+                action,
+                config,
+            )
+            scores.append(
+                self._state_instability(
+                    rabbits=rabbits,
+                    foxes=foxes,
+                    previous_rabbits=previous_rabbits,
+                    previous_foxes=previous_foxes,
+                )
+                + 0.03 * (action.cut_fraction + action.fertilizer_fraction)
+            )
+            previous_rabbits = rabbits
+            previous_foxes = foxes
+
+        return float(np.mean(scores))
+
+    def _aggregate_step(
+        self,
+        grass_biomass: float,
+        rabbits: float,
+        foxes: float,
+        action: ControlAction,
+        config: SimulationConfig,
+    ) -> tuple:
+        grass_biomass = self._apply_aggregate_action(grass_biomass, action, config)
+        grass_biomass += config.grass_regrowth_rate * (
+            config.grass_capacity_total - grass_biomass
+        )
+        grass_biomass = min(max(grass_biomass, 0.0), config.grass_capacity_total)
+
+        grass_fraction = grass_biomass / max(config.grass_capacity_total, 1.0)
+        rabbit_resource_growth = 0.22 * rabbits * (grass_fraction - 0.10)
+        rabbit_crowding = 0.10 * rabbits * max(0.0, rabbits / config.max_rabbits)
+        predation = 0.018 * foxes * rabbits / max(self._target_rabbits, 1.0)
+        next_rabbits = rabbits + rabbit_resource_growth - rabbit_crowding - predation
+
+        prey_pressure = rabbits / max(self._target_rabbits, 1.0) - 0.65
+        fox_growth = 0.12 * foxes * prey_pressure
+        fox_crowding = 0.04 * foxes * max(0.0, foxes / config.max_foxes)
+        next_foxes = foxes + fox_growth - fox_crowding
+
+        return (
+            grass_biomass,
+            max(0.0, min(float(config.max_rabbits), next_rabbits)),
+            max(0.0, min(float(config.max_foxes), next_foxes)),
+        )
+
+    def _apply_aggregate_action(
+        self,
+        grass_biomass: float,
+        action: ControlAction,
+        config: SimulationConfig,
+    ) -> float:
+        if action.cut_fraction > 0.0:
+            return grass_biomass * (1.0 - min(action.cut_fraction, config.max_cut_fraction))
+        if action.fertilizer_fraction > 0.0:
+            fraction = min(action.fertilizer_fraction, config.max_fertilizer_fraction)
+            return grass_biomass + fraction * (
+                config.grass_capacity_total - grass_biomass
+            )
+        return grass_biomass
+
+    def _state_instability(
+        self,
+        rabbits: float,
+        foxes: float,
+        previous_rabbits: float,
+        previous_foxes: float,
+    ) -> float:
+        rabbit_deviation = abs(rabbits - self._target_rabbits) / self._target_rabbits
+        fox_deviation = abs(foxes - self._target_foxes) / self._target_foxes
+        rabbit_change = abs(rabbits - previous_rabbits) / self._target_rabbits
+        fox_change = abs(foxes - previous_foxes) / self._target_foxes
+        rabbit_safety = max(0.0, (self._rabbit_safety - rabbits) / self._rabbit_safety)
+        fox_safety = max(0.0, (self._fox_safety - foxes) / self._fox_safety)
+
+        return (
+            0.30 * rabbit_deviation
+            + 0.30 * fox_deviation
+            + 0.15 * rabbit_change
+            + 0.15 * fox_change
+            + 0.05 * rabbit_safety
+            + 0.05 * fox_safety
+        )
+
+    def _cut(self, amount: float) -> ControlAction:
+        return ControlAction(
+            cut_fraction=min(max(amount, 0.0), self._max_cut_fraction),
+        )
+
+    def _fertilize(self, amount: float) -> ControlAction:
+        return ControlAction(
+            fertilizer_fraction=min(max(amount, 0.0), self._max_fertilizer_fraction),
+        )
+
 
 
 class PIGrassController(Controller):

@@ -15,6 +15,8 @@ Default outputs are overwritten in `results/`:
 
 - `baseline.png` / `baseline.pdf`
 - `control_theory.png` / `control_theory.pdf`
+- `rule_based.png` / `rule_based.pdf`
+- `look_ahead.png` / `look_ahead.pdf`
 - `dashboard.png` / `dashboard.pdf`
 - `summary.json`
 
@@ -27,6 +29,9 @@ The first comparison includes:
   non-negative actions, grass cutting and fertilizer application.
 - `rule_based`: an interpretable threshold policy focused on staying close to
   the initial rabbit and fox populations while avoiding safety-floor breaches.
+- `look_ahead`: a random shooting policy that simulates candidate action
+  sequences 10 steps ahead with a fast aggregate mini-simulation, then chooses
+  the first action from the lowest-instability plan.
 
 The code is structured so future controller types can be added as new
 scenarios without changing the simulation core.

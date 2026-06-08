@@ -68,7 +68,10 @@ def simulate(
             foxes=len(foxes),
             grass_capacity_total=config.grass_capacity_total,
         )
-        action = _single_action_choice(controller.act(observation), config)
+        action = _single_action_choice(
+            controller.act_with_state(observation, grass, rabbits, foxes, config),
+            config,
+        )
 
         _apply_control(grass, action, config)
         _regrow_grass(grass, config, rng)

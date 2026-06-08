@@ -12,6 +12,9 @@ The system compares:
   do nothing, cut grass, or apply fertilizer.
 - `rule_based`: an interpretable threshold policy that tries to keep rabbit and
   fox populations close to their initial values while avoiding safety floors.
+- `look_ahead`: a random shooting policy that samples possible action
+  sequences, simulates their aggregate effects 10 steps ahead, and applies the
+  first action from the lowest-instability sequence.
 
 The goal is to reduce system instability while keeping rabbit and fox
 populations close to their initial conditions and away from unsafe low
@@ -86,7 +89,8 @@ src/agent_dynamic_system/controllers.py
 ```
 
 Defines the controller interface, the no-control baseline, the current PI-style
-grass controller, and the rule-based stability controller.
+grass controller, the rule-based stability controller, and the look-ahead
+mini-simulation controller.
 
 ```text
 src/agent_dynamic_system/experiment.py
@@ -222,6 +226,29 @@ policy is focused on minimizing movement away from the initial ideal state:
 This is intended as an interpretable comparison method, not as a classical
 control-theory policy.
 
+## Look-Ahead Controller
+
+The look-ahead controller is named:
+
+```text
+look_ahead
+```
+
+It uses a random shooting method:
+
+1. Generate candidate action sequences.
+2. Simulate each sequence for `10` future steps with a fast aggregate
+   grass/rabbit/fox approximation.
+3. Score each simulated trajectory by deviation from the initial population
+   targets, short-term population change, and safety-floor risk.
+4. Choose the first action from the best-scoring sequence.
+
+The implementation uses aggregate mini-simulations rather than cloning the full
+individual ABM for each candidate. Full ABM rollouts were too slow for the
+default Monte Carlo workload. The state-aware controller hook remains in place,
+so a future version can use full-state rollouts or a more accurate learned
+surrogate model.
+
 ## Action Meaning
 
 Cut action:
@@ -252,6 +279,8 @@ They are overwritten on each run:
 - `results/control_theory.pdf`
 - `results/rule_based.png`
 - `results/rule_based.pdf`
+- `results/look_ahead.png`
+- `results/look_ahead.pdf`
 - `results/dashboard.png`
 - `results/dashboard.pdf`
 - `results/summary.json`
@@ -324,19 +353,20 @@ Latest lower-is-better instability scores:
 
 - `rule_based`: `0.9977330744053617`
 - `control_theory`: `1.049903374825909`
+- `look_ahead`: `1.1605075099149809`
 - `baseline`: `2.6466502026074314`
 
 Relative to baseline:
 
 - `rule_based`: `0.37697957721137965`
 - `control_theory`: `0.39669140024305566`
+- `look_ahead`: `0.4384816356810847`
 - `baseline`: `1.0`
 
-The latest run ranks `rule_based` slightly better than `control_theory` under
-the current instability metric. This is because the rule-based policy now cuts
-more aggressively when foxes are far above the initial ideal and rabbits are
-not close to the rabbit safety floor. Both managed scenarios remain
-substantially lower instability than baseline.
+The latest run ranks `rule_based` slightly better than `control_theory`, with
+`look_ahead` also substantially better than baseline. The look-ahead policy
+keeps rabbits close to the initial target but allows foxes to remain farther
+from the 20-fox ideal than the two best managed scenarios.
 
 ## Extension Plan
 

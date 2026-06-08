@@ -11,13 +11,15 @@ whose goal is to reduce rabbit and fox population variance over simulation time.
 
 ## Current Comparison
 
-Three simulation types are run independently:
+Four simulation types are run independently:
 
 - `baseline`: no grass cutting and no fertilizer.
 - `control_theory`: PI-style feedback controller using two independent
   non-negative action channels.
 - `rule_based`: threshold and safety-floor policy that chooses do nothing, cut,
   or fertilize based on population bands around the initial targets.
+- `look_ahead`: random shooting policy that evaluates candidate action
+  sequences with a 10-step aggregate mini-simulation.
 
 The two intervention channels are intentionally modeled as separate actions:
 
@@ -76,6 +78,8 @@ Default outputs:
 - `results/control_theory.pdf`
 - `results/rule_based.png`
 - `results/rule_based.pdf`
+- `results/look_ahead.png`
+- `results/look_ahead.pdf`
 - `results/dashboard.png`
 - `results/dashboard.pdf`
 - `results/summary.json`
