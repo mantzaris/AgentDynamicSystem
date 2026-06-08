@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 
 from agent_dynamic_system.config import SimulationConfig
 from agent_dynamic_system.controllers import (
+    CodexAgentInLoopController,
     LookAheadMiniSimulationController,
     NoControl,
     PIGrassController,
@@ -35,6 +36,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runs", type=int, default=30, help="Monte Carlo repeats.")
     parser.add_argument("--steps", type=int, default=500, help="Steps per run.")
     parser.add_argument("--seed", type=int, default=20260607, help="Base random seed.")
+    parser.add_argument(
+        "--include-agent-in-loop",
+        action="store_true",
+        help="Include the Codex CLI agent-in-the-loop controller.",
+    )
+    parser.add_argument(
+        "--agent-decision-interval",
+        type=int,
+        default=10,
+        help="Steps between Codex agent-in-the-loop consultations.",
+    )
+    parser.add_argument(
+        "--agent-timeout",
+        type=int,
+        default=120,
+        help="Seconds to wait for each Codex agent-in-the-loop decision.",
+    )
+    parser.add_argument(
+        "--agent-codex-command",
+        default="codex",
+        help="Codex CLI command used by the agent-in-the-loop controller.",
+    )
+    parser.add_argument(
+        "--agent-runs",
+        type=int,
+        default=1,
+        help=(
+            "Number of simulation runs for the Codex agent-in-the-loop scenario. "
+            "Defaults to 1 so a 500-step run with interval 10 makes 50 Codex calls."
+        ),
+    )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -54,11 +86,32 @@ def main() -> None:
         Scenario("rule_based", lambda config: RuleBasedStabilityController()),
         Scenario("look_ahead", lambda config: LookAheadMiniSimulationController()),
     ]
+    if args.include_agent_in_loop:
+        scenarios.append(
+            Scenario(
+                "agent_in_loop",
+                lambda config: CodexAgentInLoopController(
+                    decision_interval=args.agent_decision_interval,
+                    timeout_seconds=args.agent_timeout,
+                    codex_command=args.agent_codex_command,
+                ),
+            )
+        )
 
-    results = [
-        run_scenario(config=config, scenario=scenario, runs=args.runs, base_seed=args.seed)
-        for scenario in scenarios
-    ]
+    scenario_runs = {}
+    results = []
+    for scenario in scenarios:
+        runs = args.agent_runs if scenario.name == "agent_in_loop" else args.runs
+        runs = max(1, runs)
+        scenario_runs[scenario.name] = runs
+        results.append(
+            run_scenario(
+                config=config,
+                scenario=scenario,
+                runs=runs,
+                base_seed=args.seed,
+            )
+        )
     summary = summarize_results(results, config)
 
     output_dir = args.output_dir
@@ -74,6 +127,7 @@ def main() -> None:
     summary_payload = {
         "config": asdict(config),
         "runs": args.runs,
+        "scenario_runs": scenario_runs,
         "steps": args.steps,
         "base_seed": args.seed,
         **summary,
@@ -84,6 +138,9 @@ def main() -> None:
     print("Completed simulation comparison.")
     print(f"Monte Carlo runs: {args.runs}")
     print(f"Steps per run: {args.steps}")
+    print("Scenario runs:")
+    for scenario_name, runs in scenario_runs.items():
+        print(f"- {scenario_name}: {runs}")
     print("Wrote:")
     for path in written:
         print(f"- {path.relative_to(ROOT)}")

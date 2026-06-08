@@ -32,6 +32,9 @@ The first comparison includes:
 - `look_ahead`: a random shooting policy that simulates candidate action
   sequences 10 steps ahead with a fast aggregate mini-simulation, then chooses
   the first action from the lowest-instability plan.
+- `agent_in_loop`: an optional local Codex CLI policy that asks Codex for a
+  grass action every 10 simulation steps, reusing an active Codex session when
+  the CLI exposes a resumable session id.
 
 The code is structured so future controller types can be added as new
 scenarios without changing the simulation core.
@@ -44,3 +47,16 @@ include red dotted safety floors at 50 rabbits and 10 foxes. The system
 instability score treats the initial populations as the optimum and penalizes
 percentage change, deviation from that initial condition, and safety-floor
 breaches.
+
+Run the optional Codex agent-in-the-loop comparison with:
+
+```bash
+.venv/bin/python scripts/run_experiments.py --include-agent-in-loop
+```
+
+That mode is not repeated across the Monte Carlo batch by default. With the
+default `500` steps and `10`-step decision interval, it makes `50` Codex
+consultations total.
+
+If Codex is installed under a different command name, pass it with
+`--agent-codex-command`.

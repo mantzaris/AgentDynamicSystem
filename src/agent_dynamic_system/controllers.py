@@ -1,4 +1,9 @@
+import json
+import re
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, List, Optional, Sequence
 
 from agent_dynamic_system.config import SimulationConfig
@@ -367,6 +372,273 @@ class LookAheadMiniSimulationController(Controller):
         return ControlAction(
             fertilizer_fraction=min(max(amount, 0.0), self._max_fertilizer_fraction),
         )
+
+
+class CodexAgentInLoopController(Controller):
+    """Consult a local Codex CLI process at fixed simulation intervals."""
+
+    name = "agent_in_loop"
+
+    def __init__(
+        self,
+        decision_interval: int = 10,
+        timeout_seconds: int = 120,
+        codex_command: str = "codex",
+    ) -> None:
+        self.decision_interval = max(1, int(decision_interval))
+        self.timeout_seconds = max(1, int(timeout_seconds))
+        self.codex_command = codex_command
+        self._target_rabbits = 1.0
+        self._target_foxes = 1.0
+        self._rabbit_safety = 0.0
+        self._fox_safety = 0.0
+        self._max_cut_fraction = 0.0
+        self._max_fertilizer_fraction = 0.0
+        self._history = []
+        self._fallback = RuleBasedStabilityController()
+        self._session_id: Optional[str] = None
+
+    def reset(self, config: SimulationConfig, seed: int) -> None:
+        self._target_rabbits = float(config.initial_rabbits)
+        self._target_foxes = float(config.initial_foxes)
+        self._rabbit_safety = float(config.rabbit_safety_threshold)
+        self._fox_safety = float(config.fox_safety_threshold)
+        self._max_cut_fraction = config.max_cut_fraction
+        self._max_fertilizer_fraction = config.max_fertilizer_fraction
+        self._history = []
+        self._session_id = None
+        self._fallback.reset(config, seed)
+
+    def act(self, observation: Observation) -> ControlAction:
+        return ControlAction()
+
+    def act_with_state(
+        self,
+        observation: Observation,
+        grass: Any,
+        rabbits: Sequence[Any],
+        foxes: Sequence[Any],
+        config: SimulationConfig,
+    ) -> ControlAction:
+        self._record_history(observation)
+        if observation.step % self.decision_interval != 0:
+            return ControlAction()
+
+        prompt = self._build_prompt(
+            observation,
+            config,
+            continuing=self._session_id is not None,
+        )
+        try:
+            decision = self._ask_codex(prompt)
+        except Exception:
+            return self._fallback.act(observation)
+        return self._parse_decision(decision, observation)
+
+    def _record_history(self, observation: Observation) -> None:
+        self._history.append(
+            {
+                "step": observation.step,
+                "grass_fraction": observation.grass_biomass
+                / max(observation.grass_capacity_total, 1.0),
+                "rabbits": observation.rabbits,
+                "foxes": observation.foxes,
+            }
+        )
+        self._history = self._history[-12:]
+
+    def _build_prompt(
+        self,
+        observation: Observation,
+        config: SimulationConfig,
+        continuing: bool,
+    ) -> str:
+        state = {
+            "current_step": observation.step,
+            "consultation_interval_steps": self.decision_interval,
+            "current_state": {
+                "grass_biomass": observation.grass_biomass,
+                "grass_capacity_total": observation.grass_capacity_total,
+                "grass_fraction_of_capacity": observation.grass_biomass
+                / max(observation.grass_capacity_total, 1.0),
+                "rabbits": observation.rabbits,
+                "foxes": observation.foxes,
+            },
+            "targets": {
+                "rabbits": self._target_rabbits,
+                "foxes": self._target_foxes,
+            },
+            "safety_floors": {
+                "rabbits": self._rabbit_safety,
+                "foxes": self._fox_safety,
+            },
+            "action_limits": {
+                "max_cut_fraction": config.max_cut_fraction,
+                "max_fertilizer_fraction": config.max_fertilizer_fraction,
+            },
+            "recent_history": self._history,
+            "stability_metric": {
+                "lower_is_better": True,
+                "ideal": "keep rabbits and foxes close to initial targets",
+                "penalizes": [
+                    "rabbit and fox variability",
+                    "mean absolute percent change from initial populations",
+                    "RMSE deviation from initial populations",
+                    "safety-floor breaches",
+                    "extinction",
+                ],
+            },
+        }
+        session_context = (
+            "This is a continuing update in the same active controller session. "
+            "Use the new state below as the current truth.\n\n"
+            if continuing
+            else ""
+        )
+        prompt = (
+            "You are the agent-in-the-loop controller for a grass/rabbit/fox "
+            "agent-based simulation. Choose exactly one grass intervention for "
+            "the current consultation step. The action will be applied once; "
+            f"the simulation will ask again after {self.decision_interval} "
+            "steps. Optimize for the provided lower-is-better instability "
+            "metric.\n\n"
+            "Allowed actions:\n"
+            "- none: amount must be 0\n"
+            "- cut: amount is fraction of standing grass removed, 0 to max_cut_fraction\n"
+            "- fertilize: amount is fraction of grass capacity gap filled, 0 to max_fertilizer_fraction\n\n"
+            "Return only JSON with this shape:\n"
+            "{\"action\":\"none|cut|fertilize\",\"amount\":0.0,\"reason\":\"short reason\"}\n\n"
+            f"Simulation state:\n{json.dumps(state, indent=2, sort_keys=True)}"
+        )
+        return session_context + prompt
+
+    def _ask_codex(self, prompt: str) -> str:
+        with tempfile.NamedTemporaryFile(
+            mode="r",
+            suffix=".txt",
+            delete=False,
+        ) as output_file:
+            output_path = Path(output_file.name)
+
+        command = self._codex_command(output_path)
+        try:
+            completed = subprocess.run(
+                command,
+                input=prompt,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                timeout=self.timeout_seconds,
+                check=True,
+            )
+            self._remember_session_id(completed.stdout)
+            return output_path.read_text().strip()
+        finally:
+            try:
+                output_path.unlink()
+            except OSError:
+                pass
+
+    def _codex_command(self, output_path: Path) -> List[str]:
+        if self._session_id is None:
+            return [
+                self.codex_command,
+                "exec",
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--json",
+                "--output-last-message",
+                str(output_path),
+                "--color",
+                "never",
+                "-",
+            ]
+        return [
+            self.codex_command,
+            "exec",
+            "resume",
+            "--skip-git-repo-check",
+            "--json",
+            "--output-last-message",
+            str(output_path),
+            self._session_id,
+            "-",
+        ]
+
+    def _remember_session_id(self, stdout: str) -> None:
+        for line in stdout.splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            session_id = self._extract_session_id(event)
+            if session_id is not None:
+                self._session_id = session_id
+
+    def _extract_session_id(self, value: Any) -> Optional[str]:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_lower = str(key).lower()
+                if isinstance(item, str) and self._looks_like_session_field(key_lower):
+                    match = re.fullmatch(self._uuid_pattern(), item.strip())
+                    if match:
+                        return item.strip()
+                nested = self._extract_session_id(item)
+                if nested is not None:
+                    return nested
+        if isinstance(value, list):
+            for item in value:
+                nested = self._extract_session_id(item)
+                if nested is not None:
+                    return nested
+        return None
+
+    @staticmethod
+    def _looks_like_session_field(key: str) -> bool:
+        return "session" in key or "conversation" in key or "thread" in key
+
+    @staticmethod
+    def _uuid_pattern() -> str:
+        return (
+            r"[0-9a-fA-F]{8}-"
+            r"[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{12}"
+        )
+
+    def _parse_decision(
+        self,
+        response: str,
+        observation: Observation,
+    ) -> ControlAction:
+        match = re.search(r"\{.*\}", response, flags=re.DOTALL)
+        if not match:
+            return self._fallback.act(observation)
+        try:
+            payload = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return self._fallback.act(observation)
+
+        action = str(payload.get("action", "none")).strip().lower()
+        try:
+            amount = float(payload.get("amount", 0.0))
+        except (TypeError, ValueError):
+            amount = 0.0
+
+        if action == "cut":
+            return ControlAction(
+                cut_fraction=min(max(amount, 0.0), self._max_cut_fraction),
+            )
+        if action == "fertilize":
+            return ControlAction(
+                fertilizer_fraction=min(
+                    max(amount, 0.0),
+                    self._max_fertilizer_fraction,
+                ),
+            )
+        return ControlAction()
 
 
 

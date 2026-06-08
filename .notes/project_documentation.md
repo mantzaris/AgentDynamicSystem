@@ -15,6 +15,10 @@ The system compares:
 - `look_ahead`: a random shooting policy that samples possible action
   sequences, simulates their aggregate effects 10 steps ahead, and applies the
   first action from the lowest-instability sequence.
+- `agent_in_loop`: an optional local Codex CLI policy that is consulted every
+  10 simulation steps and returns a grass action for the current state. It
+  starts a Codex session on the first consultation and resumes the same session
+  for later state updates when the CLI exposes a resumable session id.
 
 The goal is to reduce system instability while keeping rabbit and fox
 populations close to their initial conditions and away from unsafe low
@@ -39,6 +43,29 @@ Optional overrides:
 
 ```bash
 .venv/bin/python scripts/run_experiments.py --runs 10 --steps 300 --seed 123
+```
+
+Include the optional Codex agent-in-the-loop method:
+
+```bash
+.venv/bin/python scripts/run_experiments.py --include-agent-in-loop
+```
+
+If needed, choose a different Codex executable name or path with:
+
+```bash
+.venv/bin/python scripts/run_experiments.py --include-agent-in-loop --agent-codex-command /path/to/codex
+```
+
+The agent-in-loop method can make many local Codex calls during Monte Carlo
+runs, so it is intentionally not tied to `--runs`. By default it runs once.
+For the default `500` steps and a 10-step consultation interval, it creates
+`50` Codex consultations total.
+
+The agent-in-loop run count can be changed separately:
+
+```bash
+.venv/bin/python scripts/run_experiments.py --include-agent-in-loop --agent-runs 2
 ```
 
 ## Local Python Environment
@@ -89,14 +116,17 @@ src/agent_dynamic_system/controllers.py
 ```
 
 Defines the controller interface, the no-control baseline, the current PI-style
-grass controller, the rule-based stability controller, and the look-ahead
-mini-simulation controller.
+grass controller, the rule-based stability controller, the look-ahead
+mini-simulation controller, and the optional Codex agent-in-loop controller.
 
 ```text
 src/agent_dynamic_system/experiment.py
 ```
 
-Runs Monte Carlo repeats for each scenario using matched seeds.
+Runs repeated simulations for each scenario using matched seeds. The runner can
+assign a different repeat count to a scenario; this is used so the optional
+Codex agent-in-loop method defaults to one run instead of the full Monte Carlo
+batch.
 
 ```text
 src/agent_dynamic_system/metrics.py
@@ -249,6 +279,46 @@ default Monte Carlo workload. The state-aware controller hook remains in place,
 so a future version can use full-state rollouts or a more accurate learned
 surrogate model.
 
+## Codex Agent-In-The-Loop Controller
+
+The optional agent-in-loop controller is named:
+
+```text
+agent_in_loop
+```
+
+It consults the local Codex CLI through `codex exec` every `10` simulation
+steps by default. The first consultation starts a session; later consultations
+use `codex exec resume` when the CLI output provides a resumable session id.
+
+Each consultation sends the latest aggregate state containing:
+
+- current simulation step;
+- current grass biomass and grass fraction;
+- current rabbit and fox counts;
+- initial target populations;
+- safety floors;
+- action limits;
+- recent aggregate state history;
+- the current instability metric definition.
+
+Codex is instructed to return only JSON:
+
+```json
+{"action": "none|cut|fertilize", "amount": 0.0, "reason": "short reason"}
+```
+
+The controller parses that JSON and applies one action once at the consultation
+step. Non-consultation steps return no intervention.
+
+If Codex is unavailable, times out, or returns invalid JSON, the controller
+falls back to the rule-based policy for that consultation rather than crashing
+the simulation.
+
+This method is opt-in and defaults to one simulation run because it delegates
+decisions to a local Codex session. With the default settings it makes `50`
+Codex consultations, not one consultation per Monte Carlo repeat.
+
 ## Action Meaning
 
 Cut action:
@@ -281,6 +351,8 @@ They are overwritten on each run:
 - `results/rule_based.pdf`
 - `results/look_ahead.png`
 - `results/look_ahead.pdf`
+- `results/agent_in_loop.png` and `results/agent_in_loop.pdf` when
+  `--include-agent-in-loop` is used.
 - `results/dashboard.png`
 - `results/dashboard.pdf`
 - `results/summary.json`
@@ -344,6 +416,8 @@ The latest generated result used:
 - runs: `30`
 - steps: `500`
 - base seed: `20260607`
+- default scenarios: `baseline`, `control_theory`, `rule_based`, `look_ahead`
+- optional `agent_in_loop`: not included in the latest saved full result
 - initial rabbits: `300`
 - initial foxes: `20`
 - rabbit safety floor: `50`

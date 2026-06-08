@@ -11,7 +11,7 @@ whose goal is to reduce rabbit and fox population variance over simulation time.
 
 ## Current Comparison
 
-Four simulation types are run independently:
+Four simulation types run by default:
 
 - `baseline`: no grass cutting and no fertilizer.
 - `control_theory`: PI-style feedback controller using two independent
@@ -20,6 +20,21 @@ Four simulation types are run independently:
   or fertilize based on population bands around the initial targets.
 - `look_ahead`: random shooting policy that evaluates candidate action
   sequences with a 10-step aggregate mini-simulation.
+
+An optional fifth method can be enabled with `--include-agent-in-loop`:
+
+- `agent_in_loop`: consults the local Codex CLI every 10 simulation steps and
+  asks it to choose do nothing, cut, or fertilize from the current state. The
+  controller starts a Codex session on the first consultation and resumes that
+  same session for later updates when a session id is available.
+
+The Codex executable defaults to `codex` and can be changed with
+`--agent-codex-command`.
+
+Unlike the other scenarios, `agent_in_loop` is not repeated across the Monte
+Carlo batch by default. Its default run count is `1`, so a `500`-step simulation
+with a `10`-step consultation interval makes `50` Codex calls total. This can be
+overridden with `--agent-runs`, but it is intentionally separate from `--runs`.
 
 The two intervention channels are intentionally modeled as separate actions:
 
@@ -67,6 +82,10 @@ controlled simulations are initialized from the same seed, which gives matched
 initial conditions while still letting each scenario evolve independently after
 its interventions change the system.
 
+The optional Codex `agent_in_loop` scenario uses only the first matched seed by
+default. It is evaluated as a single agent-guided trajectory rather than as a
+Monte Carlo repeated scenario.
+
 Individual run files are not saved. Only aggregate comparison outputs are
 written, and they overwrite previous results.
 
@@ -80,6 +99,8 @@ Default outputs:
 - `results/rule_based.pdf`
 - `results/look_ahead.png`
 - `results/look_ahead.pdf`
+- `results/agent_in_loop.png` and `results/agent_in_loop.pdf` when
+  `--include-agent-in-loop` is used.
 - `results/dashboard.png`
 - `results/dashboard.pdf`
 - `results/summary.json`

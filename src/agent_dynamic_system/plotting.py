@@ -172,8 +172,8 @@ def save_dashboard(
         0.07,
         0.035,
         (
-            "Matched seeds; bands show Monte Carlo SE; one controller choice per "
-            "step; files overwrite."
+            "Matched seeds; bands show Monte Carlo SE where repeated; one "
+            "controller choice per step; files overwrite."
         ),
         fontsize=8,
         color="#4E5964",
