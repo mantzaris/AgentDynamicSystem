@@ -46,6 +46,32 @@ Carlo batch by default. Its default run count is `1`, so a `500`-step simulation
 with a `10`-step consultation interval makes `50` Codex calls total. This can be
 overridden with `--agent-runs`, but it is intentionally separate from `--runs`.
 
+## Codex-In-The-Loop Benchmark
+
+A separate script runs the Codex-focused experiment:
+
+```bash
+.venv/bin/python scripts/run_codex_experiments.py --system all
+```
+
+This benchmark compares only:
+
+- `baseline`: no intervention.
+- `codex_steady`: Codex is called on a fixed interval, default `20` steps.
+- `codex_guardian`: Codex is called when recent instability is worsening or a
+  safety boundary is being approached.
+- `codex_control_advised`: Codex is called on a fixed interval, but the prompt
+  includes a local control-theory advisory.
+
+Outputs are written to `results_codex/`, with one subdirectory per system plus
+`codex_benchmark_summary.json` and a cross-system dashboard. This keeps the
+Codex-recipe comparison separate from the classical controller benchmark.
+
+The default Codex benchmark uses `--runs 1` to avoid exploding the number of
+Codex calls. For 500 steps and a 20-step interval, the steady and
+control-advised methods each make roughly 25 calls per system; guardian calls
+are event-triggered and typically fewer.
+
 ## Systems
 
 ### Grass/Rabbit/Fox

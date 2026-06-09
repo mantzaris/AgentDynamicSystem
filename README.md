@@ -75,6 +75,33 @@ consultations total.
 If Codex is installed under a different command name, pass it with
 `--agent-codex-command`.
 
+## Codex-In-The-Loop Benchmark
+
+The Codex-focused benchmark is separate from the classical controller
+benchmark, so the plots stay readable. It compares:
+
+- `baseline`: no intervention.
+- `codex_steady`: Codex is consulted on a fixed interval.
+- `codex_guardian`: Codex is consulted only when recent instability worsens or
+  safety thresholds are approached.
+- `codex_control_advised`: Codex is consulted on a fixed interval after a local
+  control-theory advisory is computed and included in the prompt.
+
+Run the Codex benchmark over all five systems:
+
+```bash
+.venv/bin/python scripts/run_codex_experiments.py --system all
+```
+
+Defaults are intentionally conservative: `--runs 1`, `--steps 500`, and
+`--decision-interval 20`. Outputs are written under `results_codex/`.
+
+For a no-Codex smoke test that exercises fallback behavior:
+
+```bash
+.venv/bin/python scripts/run_codex_experiments.py --system all --runs 1 --steps 20 --codex-command not-a-real-codex-command --output-dir results_codex_smoke
+```
+
 ## Dynamic Systems
 
 `grass_rabbit_fox` models individual rabbits and foxes on a grass grid.

@@ -10,3 +10,10 @@ results/**/*.png
 results/**/*.pdf
 results/**/*.json
 results_smoke/
+results_codex/*.png
+results_codex/*.pdf
+results_codex/*.json
+results_codex/**/*.png
+results_codex/**/*.pdf
+results_codex/**/*.json
+results_codex_smoke/

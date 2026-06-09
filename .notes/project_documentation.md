@@ -55,6 +55,12 @@ Run the full multi-system benchmark:
 .venv/bin/python scripts/run_experiments.py --system all
 ```
 
+Run the separate Codex-in-the-loop benchmark:
+
+```bash
+.venv/bin/python scripts/run_codex_experiments.py --system all
+```
+
 Run a single additional system:
 
 ```bash
@@ -219,6 +225,20 @@ scripts/run_experiments.py
 ```
 
 Main command-line entry point.
+
+```text
+scripts/run_codex_experiments.py
+```
+
+Separate command-line entry point for the Codex-in-the-loop benchmark. It keeps
+the Codex recipe comparison separate from the classical controller comparison.
+
+```text
+src/agent_dynamic_system/codex_guidance.py
+```
+
+Reusable Codex guidance policy for the generic benchmark systems. It implements
+fixed-interval, guardian-triggered, and control-advised prompt recipes.
 
 ## Current Model Defaults
 
@@ -532,6 +552,44 @@ Tracked variables:
 
 The lower-is-better score penalizes imbalance, battery depletion, price
 instability, outage risk, safety-bound breaches, and intervention amount.
+
+## Codex-In-The-Loop Benchmark
+
+The Codex benchmark is separate from the classical benchmark and writes to:
+
+```text
+results_codex/
+```
+
+It compares the same five systems, but only these scenarios:
+
+- `baseline`: no intervention.
+- `codex_steady`: Codex is consulted on a fixed interval.
+- `codex_guardian`: Codex is consulted only when recent instability worsens or
+  a safety threshold is approached.
+- `codex_control_advised`: Codex is consulted on a fixed interval after a local
+  control-theory advisory is computed and included in the prompt.
+
+The default command is:
+
+```bash
+.venv/bin/python scripts/run_codex_experiments.py --system all
+```
+
+Defaults:
+
+- runs per scenario: `1`
+- steps: `500`
+- decision interval: `20`
+- output directory: `results_codex/`
+
+For `500` steps and a `20`-step interval, `codex_steady` and
+`codex_control_advised` each make roughly `25` Codex calls per system.
+`codex_guardian` is event-triggered and should usually make fewer calls.
+
+If Codex is unavailable, times out, or returns invalid JSON, the Codex strategy
+falls back to the system's rule-based policy for that decision. This keeps long
+benchmark runs from crashing but should be noted when interpreting results.
 
 ## Action Meaning
 

@@ -4,7 +4,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from agent_dynamic_system.config import SimulationConfig
 
@@ -639,6 +639,133 @@ class CodexAgentInLoopController(Controller):
                 ),
             )
         return ControlAction()
+
+
+class CodexSteadyGrassController(CodexAgentInLoopController):
+    name = "codex_steady"
+
+    def __init__(
+        self,
+        decision_interval: int = 20,
+        timeout_seconds: int = 120,
+        codex_command: str = "codex",
+    ) -> None:
+        super().__init__(decision_interval, timeout_seconds, codex_command)
+
+
+class CodexGuardianGrassController(CodexAgentInLoopController):
+    name = "codex_guardian"
+
+    def __init__(
+        self,
+        decision_interval: int = 20,
+        timeout_seconds: int = 120,
+        codex_command: str = "codex",
+        guardian_threshold: float = 0.06,
+    ) -> None:
+        super().__init__(decision_interval, timeout_seconds, codex_command)
+        self.guardian_threshold = guardian_threshold
+
+    def act_with_state(
+        self,
+        observation: Observation,
+        grass: Any,
+        rabbits: Sequence[Any],
+        foxes: Sequence[Any],
+        config: SimulationConfig,
+    ) -> ControlAction:
+        self._record_history(observation)
+        check_interval = max(1, self.decision_interval // 4)
+        if observation.step % check_interval != 0 or not self._guardian_triggered():
+            return ControlAction()
+
+        prompt = self._build_prompt(
+            observation,
+            config,
+            continuing=self._session_id is not None,
+        )
+        prompt = (
+            "You were called because recent grass/rabbit/fox instability is "
+            "worsening or a safety threshold is being approached.\n\n"
+            + prompt
+        )
+        try:
+            decision = self._ask_codex(prompt)
+        except Exception:
+            return self._fallback.act(observation)
+        return self._parse_decision(decision, observation)
+
+    def _guardian_triggered(self) -> bool:
+        if len(self._history) < 4:
+            return False
+        scores = [self._history_instability(item) for item in self._history[-6:]]
+        recent = float(sum(scores[-2:]) / 2.0)
+        previous = float(sum(scores[:-2]) / max(len(scores[:-2]), 1))
+        latest = self._history[-1]
+        return (
+            recent - previous > self.guardian_threshold
+            or latest["rabbits"] < 1.35 * self._rabbit_safety
+            or latest["foxes"] < 1.35 * self._fox_safety
+        )
+
+    def _history_instability(self, item: Dict[str, float]) -> float:
+        rabbit_error = abs(item["rabbits"] - self._target_rabbits) / self._target_rabbits
+        fox_error = abs(item["foxes"] - self._target_foxes) / self._target_foxes
+        grass_error = abs(item["grass_fraction"] - 0.45) / 0.45
+        return 0.40 * rabbit_error + 0.40 * fox_error + 0.20 * grass_error
+
+
+class CodexControlAdvisedGrassController(CodexAgentInLoopController):
+    name = "codex_control_advised"
+
+    def __init__(
+        self,
+        decision_interval: int = 20,
+        timeout_seconds: int = 120,
+        codex_command: str = "codex",
+    ) -> None:
+        super().__init__(decision_interval, timeout_seconds, codex_command)
+
+    def _build_prompt(
+        self,
+        observation: Observation,
+        config: SimulationConfig,
+        continuing: bool,
+    ) -> str:
+        prompt = super()._build_prompt(observation, config, continuing)
+        advisory = self._control_advisory(observation)
+        return (
+            "A local control-theory advisory has been computed before this "
+            "Codex decision. Use it as structured feedback, but you may override "
+            "it if the state history suggests a better intervention.\n\n"
+            f"Control advisory:\n{json.dumps(advisory, indent=2, sort_keys=True)}\n\n"
+            + prompt
+        )
+
+    def _control_advisory(self, observation: Observation) -> Dict[str, Any]:
+        rabbit_error = (self._target_rabbits - observation.rabbits) / self._target_rabbits
+        fox_error = (self._target_foxes - observation.foxes) / self._target_foxes
+        grass_fraction = observation.grass_biomass / max(observation.grass_capacity_total, 1.0)
+        if observation.rabbits > self._target_rabbits * 1.15:
+            action = "cut"
+            amount = min(self._max_cut_fraction, 0.08 + 0.35 * abs(rabbit_error))
+        elif observation.rabbits < self._target_rabbits * 0.85 or observation.foxes < self._target_foxes * 0.80:
+            action = "fertilize"
+            amount = min(self._max_fertilizer_fraction, 0.08 + 0.35 * max(rabbit_error, fox_error))
+        elif grass_fraction < 0.20:
+            action = "fertilize"
+            amount = min(self._max_fertilizer_fraction, 0.10)
+        else:
+            action = "none"
+            amount = 0.0
+        return {
+            "method": "proportional feedback around initial animal targets",
+            "rabbit_error_target_minus_current": rabbit_error,
+            "fox_error_target_minus_current": fox_error,
+            "grass_fraction": grass_fraction,
+            "recommended_action": action,
+            "recommended_amount": amount,
+        }
 
 
 
