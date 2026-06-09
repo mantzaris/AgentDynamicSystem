@@ -2,8 +2,20 @@
 
 ## Purpose
 
-This project explores whether a dynamic agent-based grass/rabbit/fox ecosystem
-can be stabilized through limited interventions.
+This project explores whether dynamic agent-based systems can be stabilized
+through limited interventions, and how different controller families compare
+across multiple simulation domains.
+
+The project now includes a benchmark suite with:
+
+- `grass_rabbit_fox`: predator-prey-resource ecosystem dynamics.
+- `forest_fire`: spatial contagion and containment dynamics.
+- `supply_chain`: consumer/supplier primary-goods stability dynamics.
+- `epidemic_city`: urban epidemic and healthcare-load dynamics.
+- `smart_grid`: renewable power-grid balancing and outage-risk dynamics.
+
+The original grass/rabbit/fox model remains the default system, but the runner
+can now execute all systems with `--system all`.
 
 The system compares:
 
@@ -24,12 +36,32 @@ The goal is to reduce system instability while keeping rabbit and fox
 populations close to their initial conditions and away from unsafe low
 population levels.
 
+For the multi-system benchmark, the analysis is uniform: every system has an
+uncontrolled baseline, explicit intervention actions, controller scenarios that
+choose from those actions, state-trajectory plots, intervention-trajectory
+plots, and lower-is-better instability rankings.
+
 ## Current Run Command
 
 Run the full experiment from the repository root:
 
 ```bash
 .venv/bin/python scripts/run_experiments.py
+```
+
+Run the full multi-system benchmark:
+
+```bash
+.venv/bin/python scripts/run_experiments.py --system all
+```
+
+Run a single additional system:
+
+```bash
+.venv/bin/python scripts/run_experiments.py --system forest_fire
+.venv/bin/python scripts/run_experiments.py --system supply_chain
+.venv/bin/python scripts/run_experiments.py --system epidemic_city
+.venv/bin/python scripts/run_experiments.py --system smart_grid
 ```
 
 The default run uses:
@@ -127,6 +159,48 @@ Runs repeated simulations for each scenario using matched seeds. The runner can
 assign a different repeat count to a scenario; this is used so the optional
 Codex agent-in-loop method defaults to one run instead of the full Monte Carlo
 batch.
+
+```text
+src/agent_dynamic_system/benchmark.py
+```
+
+Defines generic run/result containers, repeated-simulation execution, and
+lower-is-better instability metrics for non-ecosystem benchmark systems.
+
+```text
+src/agent_dynamic_system/forest_fire.py
+```
+
+Defines the forest-fire spatial contagion model, its controller policies, labels,
+and metric targets.
+
+```text
+src/agent_dynamic_system/supply_chain.py
+```
+
+Defines the supply-chain/resource-market model, its controller policies, labels,
+and metric targets.
+
+```text
+src/agent_dynamic_system/epidemic_city.py
+```
+
+Defines the district-level epidemic response model, its controller policies,
+labels, and metric targets.
+
+```text
+src/agent_dynamic_system/smart_grid.py
+```
+
+Defines the renewable smart-grid balancing model, its controller policies,
+labels, and metric targets.
+
+```text
+src/agent_dynamic_system/generic_plotting.py
+```
+
+Writes scenario plots, system dashboards, and the cross-system dashboard for the
+generic benchmark systems.
 
 ```text
 src/agent_dynamic_system/metrics.py
@@ -319,6 +393,146 @@ This method is opt-in and defaults to one simulation run because it delegates
 decisions to a local Codex session. With the default settings it makes `50`
 Codex consultations, not one consultation per Monte Carlo repeat.
 
+## Forest-Fire Benchmark
+
+The forest-fire benchmark is named:
+
+```text
+forest_fire
+```
+
+It is a spatial contagion model with:
+
+- continuous fuel per grid cell;
+- burning cells;
+- burned cells;
+- stochastic lightning ignition;
+- neighbor fire spread;
+- eastward wind bias;
+- slow fuel regrowth.
+
+The controller chooses one intervention per step:
+
+- do nothing;
+- water drop: extinguish a fraction of burning cells;
+- firebreak: remove fuel from unburned cells;
+- controlled burn: intentionally remove fuel from selected cells.
+
+Tracked variables:
+
+- burning area fraction;
+- cumulative burned fraction;
+- available fuel fraction.
+
+The lower-is-better score penalizes burning-area variability, cumulative burn
+damage, fuel depletion, safety-bound breaches, and intervention amount.
+
+## Supply-Chain Benchmark
+
+The supply-chain benchmark is named:
+
+```text
+supply_chain
+```
+
+It is an aggregate consumer/supplier primary-goods model with:
+
+- stochastic demand shocks;
+- inventory;
+- production capacity;
+- supplier health;
+- unmet demand;
+- price feedback from scarcity and surplus.
+
+The controller chooses one intervention per step:
+
+- do nothing;
+- inventory release;
+- production boost;
+- demand rationing;
+- supplier subsidy.
+
+Tracked variables:
+
+- inventory;
+- unmet demand fraction;
+- price index;
+- supplier health.
+
+The lower-is-better score penalizes volatility, deviation from target inventory
+and price, unmet demand, supplier-health decline, safety-bound breaches, and
+intervention amount.
+
+## Epidemic-City Benchmark
+
+The epidemic-city benchmark is named:
+
+```text
+epidemic_city
+```
+
+It is a district-level epidemic response model with:
+
+- susceptible, infected, and recovered populations;
+- district mobility mixing;
+- stochastic event shocks;
+- recovery and waning immunity;
+- hospital load driven by infection prevalence.
+
+The controller chooses one intervention per step:
+
+- do nothing;
+- vaccination;
+- testing/isolation;
+- mobility reduction;
+- hospital surge capacity.
+
+Tracked variables:
+
+- infected fraction;
+- hospital load;
+- susceptible fraction;
+- recovered fraction.
+
+The lower-is-better score penalizes infection instability, high hospital load,
+large target deviations, safety-bound breaches, and intervention amount.
+
+## Smart-Grid Benchmark
+
+The smart-grid benchmark is named:
+
+```text
+smart_grid
+```
+
+It is a renewable electric-grid balancing model with:
+
+- time-varying electricity load;
+- renewable generation variability;
+- weather shocks;
+- dispatchable generation;
+- battery storage;
+- price feedback;
+- outage risk from shortage.
+
+The controller chooses one intervention per step:
+
+- do nothing;
+- demand response;
+- battery dispatch;
+- backup generation;
+- renewable curtailment.
+
+Tracked variables:
+
+- supply-demand imbalance;
+- battery charge;
+- price index;
+- outage fraction.
+
+The lower-is-better score penalizes imbalance, battery depletion, price
+instability, outage risk, safety-bound breaches, and intervention amount.
+
 ## Action Meaning
 
 Cut action:
@@ -341,7 +555,8 @@ Outputs are written to:
 results/
 ```
 
-They are overwritten on each run:
+They are overwritten on each run. For a single grass/rabbit/fox run, the files
+are:
 
 - `results/baseline.png`
 - `results/baseline.pdf`
@@ -356,6 +571,26 @@ They are overwritten on each run:
 - `results/dashboard.png`
 - `results/dashboard.pdf`
 - `results/summary.json`
+
+When `--system all` is used, each system writes its own subdirectory:
+
+- `results/grass_rabbit_fox/`
+- `results/forest_fire/`
+- `results/supply_chain/`
+- `results/epidemic_city/`
+- `results/smart_grid/`
+
+Each system subdirectory contains per-controller PNG/PDF trajectory plots,
+`dashboard.png`, `dashboard.pdf`, and `summary.json`.
+
+Each dashboard shows both system-state trajectories and separate intervention
+action trajectories so the controller mechanism is visible for every system.
+
+The all-system run also writes:
+
+- `results/cross_system_dashboard.png`
+- `results/cross_system_dashboard.pdf`
+- `results/benchmark_summary.json`
 
 The dashboard shows:
 

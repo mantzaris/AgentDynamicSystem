@@ -6,4 +6,7 @@ __pycache__/
 results/*.png
 results/*.pdf
 results/*.json
+results/**/*.png
+results/**/*.pdf
+results/**/*.json
 results_smoke/

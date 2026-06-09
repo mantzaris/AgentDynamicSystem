@@ -1,7 +1,19 @@
 # Agent Dynamic System
 
-Agent-based grass/rabbit/fox simulation with Monte Carlo comparisons between
-an uncontrolled baseline and controller-driven interventions.
+Benchmark suite for comparing intervention models across dynamic simulations.
+
+The current systems are:
+
+- `grass_rabbit_fox`: predator-prey-resource ecosystem control.
+- `forest_fire`: spatial contagion and containment control.
+- `supply_chain`: consumer/supplier primary-goods stability control.
+- `epidemic_city`: urban epidemic response and healthcare-load control.
+- `smart_grid`: renewable electric-grid balancing and outage-risk control.
+
+Each system compares an uncontrolled baseline against controller-driven
+interventions using matched random seeds and lower-is-better instability scores.
+Every non-baseline controller uses an explicit intervention action space, and
+the dashboards show those intervention choices over time.
 
 ## Run
 
@@ -11,42 +23,44 @@ Use the local virtual environment:
 .venv/bin/python scripts/run_experiments.py
 ```
 
-Default outputs are overwritten in `results/`:
+The default command runs the original grass/rabbit/fox benchmark and writes
+over `results/`.
 
-- `baseline.png` / `baseline.pdf`
-- `control_theory.png` / `control_theory.pdf`
-- `rule_based.png` / `rule_based.pdf`
-- `look_ahead.png` / `look_ahead.pdf`
-- `dashboard.png` / `dashboard.pdf`
-- `summary.json`
+Run all benchmark systems:
 
-## Current Scope
+```bash
+.venv/bin/python scripts/run_experiments.py --system all
+```
 
-The first comparison includes:
+Run one new system:
+
+```bash
+.venv/bin/python scripts/run_experiments.py --system forest_fire
+.venv/bin/python scripts/run_experiments.py --system supply_chain
+.venv/bin/python scripts/run_experiments.py --system epidemic_city
+.venv/bin/python scripts/run_experiments.py --system smart_grid
+```
+
+When `--system all` is used, outputs are written under:
+
+- `results/grass_rabbit_fox/`
+- `results/forest_fire/`
+- `results/supply_chain/`
+- `results/epidemic_city/`
+- `results/smart_grid/`
+- `results/cross_system_dashboard.png`
+- `results/cross_system_dashboard.pdf`
+- `results/benchmark_summary.json`
+
+## Controller Families
+
+The benchmark currently compares:
 
 - `baseline`: no intervention.
-- `control_theory`: a PI-style feedback controller with two independent
-  non-negative actions, grass cutting and fertilizer application.
-- `rule_based`: an interpretable threshold policy focused on staying close to
-  the initial rabbit and fox populations while avoiding safety-floor breaches.
-- `look_ahead`: a random shooting policy that simulates candidate action
-  sequences 10 steps ahead with a fast aggregate mini-simulation, then chooses
-  the first action from the lowest-instability plan.
-- `agent_in_loop`: an optional local Codex CLI policy that asks Codex for a
-  grass action every 10 simulation steps, reusing an active Codex session when
-  the CLI exposes a resumable session id.
-
-The code is structured so future controller types can be added as new
-scenarios without changing the simulation core.
-
-The default experiment runs 500 simulation steps. The controller chooses one
-intervention per step: do nothing, cut grass, or apply fertilizer.
-
-Default animal initialization is 300 rabbits and 20 foxes. Rabbit and fox plots
-include red dotted safety floors at 50 rabbits and 10 foxes. The system
-instability score treats the initial populations as the optimum and penalizes
-percentage change, deviation from that initial condition, and safety-floor
-breaches.
+- `control_theory`: aggregate feedback controller.
+- `rule_based`: interpretable threshold policy.
+- `look_ahead`: short-horizon rollout policy.
+- `agent_in_loop`: optional Codex CLI controller for `grass_rabbit_fox`.
 
 Run the optional Codex agent-in-the-loop comparison with:
 
@@ -60,3 +74,31 @@ consultations total.
 
 If Codex is installed under a different command name, pass it with
 `--agent-codex-command`.
+
+## Dynamic Systems
+
+`grass_rabbit_fox` models individual rabbits and foxes on a grass grid.
+Interventions are grass cutting and fertilizer application. Only one action is
+applied per simulation step.
+
+`forest_fire` models stochastic fire spread across a fuel grid. Interventions
+are water drops, firebreaks, and controlled burns. Only one action is applied
+per simulation step.
+
+`supply_chain` models demand shocks, inventory, supplier health, price, and
+unmet demand. Interventions are inventory release, production boost, rationing,
+and supplier subsidy. Only one action is applied per simulation step.
+
+`epidemic_city` models district-level disease spread, immunity, mobility, and
+hospital load. Interventions are vaccination, testing/isolation, mobility
+reduction, and hospital surge capacity. Only one action is applied per
+simulation step.
+
+`smart_grid` models electricity load, renewable variability, battery storage,
+price, and outage risk. Interventions are demand response, battery dispatch,
+backup generation, and renewable curtailment. Only one action is applied per
+simulation step.
+
+Each system has domain-specific metrics that are normalized into a common
+lower-is-better instability score for ranking controllers within and across
+systems.
