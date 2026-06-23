@@ -17,3 +17,8 @@ results_codex/**/*.png
 results_codex/**/*.pdf
 results_codex/**/*.json
 results_codex_smoke/
+defense_urban_response/results/
+defense_urban_response/results_smoke/
+defense_urban_response/results_smoke_nocodex/
+defense_urban_response/results_validation/
+defense_urban_response/.cache/

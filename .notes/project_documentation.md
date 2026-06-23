@@ -17,6 +17,11 @@ The project now includes a benchmark suite with:
 The original grass/rabbit/fox model remains the default system, but the runner
 can now execute all systems with `--system all`.
 
+There is also a separate defense-oriented case study in
+`defense_urban_response/` that is not part of the classical instability
+benchmark, but serves as a harsh survival / clearance comparison for rule-based
+controllers and local Codex-in-the-loop controllers.
+
 The system compares:
 
 - `baseline`: the ecosystem runs with no intervention.
@@ -35,6 +40,10 @@ The system compares:
 The goal is to reduce system instability while keeping rabbit and fox
 populations close to their initial conditions and away from unsafe low
 population levels.
+
+For the defense case study, the goal is different: maximize zombie elimination
+pressure, make the baseline fail under stress, and compare which controllers
+can hold up when civilians and defenders are both at risk.
 
 For the multi-system benchmark, the analysis is uniform: every system has an
 uncontrolled baseline, explicit intervention actions, controller scenarios that
@@ -59,6 +68,12 @@ Run the separate Codex-in-the-loop benchmark:
 
 ```bash
 .venv/bin/python scripts/run_codex_experiments.py --system all
+```
+
+Run the defense urban-response benchmark:
+
+```bash
+.venv/bin/python defense_urban_response/run_experiment.py --include-codex --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
 ```
 
 Run a single additional system:
@@ -278,6 +293,67 @@ Controller action caps:
 
 - max cut fraction: `0.28`
 - max fertilizer fraction: `0.28`
+
+## Defense Urban Response Case
+
+Location:
+
+- `defense_urban_response/`
+
+Core files:
+
+- `defense_urban_response/run_experiment.py`
+- `defense_urban_response/urban_response.py`
+- `defense_urban_response/data/orlando_convention_roads.json`
+
+The defense case is separate from the classical stability benchmark. It is a
+road-network hostile-contagion response scenario intended to test whether
+guided intervention policies outperform weak unmanaged baseline patrol under
+severe outbreak pressure.
+
+Current default counts:
+
+- zombies: `150`
+- civilians: `300`
+- defenders: `30`
+- steps: `180`
+
+Current dynamics:
+
+- zombies move on roads and are faster than civilians;
+- zombies use directional road movement, preferring to continue forward and
+  branching at intersections instead of behaving as pure random walkers;
+- civilians flee nearby zombies but are vulnerable to contact;
+- zombie contact with civilians kills or converts them;
+- zombie contact and broad swarm pressure can kill defenders
+  probabilistically;
+- defender casualty risk rises with local zombie density;
+- baseline patrol has no targeting and reduced mobility;
+- non-baseline defenders are guided by their controller policy.
+
+Policies:
+
+- `baseline`: unmanaged patrol.
+- `rule_based`: visible-threat and civilian-threat targeting.
+- `monte_carlo`: short risk-heuristic targeting.
+- `codex_steady`: Codex tactic advisor at fixed intervals.
+- `codex_guardian`: Codex tactic advisor when the outbreak worsens.
+
+Metrics and interpretation:
+
+- the objective is zombie elimination speed, not stability;
+- zombie victory is an explicit failure mode when defenders or civilians are
+  wiped out;
+- zombie victory is penalized separately from zombie clearance time;
+- the dashboard reports zombie-victory rate and a failure-adjusted elimination
+  score where lower is better;
+- early baseline collapse should increase the score, not improve it.
+
+Primary run command:
+
+```bash
+.venv/bin/python defense_urban_response/run_experiment.py --include-codex --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
+```
 
 ## Simulation Step Order
 

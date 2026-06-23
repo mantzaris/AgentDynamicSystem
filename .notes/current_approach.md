@@ -3,7 +3,9 @@
 ## Goal
 
 Explore how different intervention models perform across multiple dynamic
-systems, not just one ecological example.
+systems, not just one ecological example, and use a separate defense-oriented
+urban case to test whether more intelligent controllers outperform weak
+baseline behavior under pressure.
 
 The project is now a benchmark suite with five systems:
 
@@ -13,9 +15,19 @@ The project is now a benchmark suite with five systems:
 - `epidemic_city`: urban epidemic and healthcare-load dynamics.
 - `smart_grid`: renewable power-grid balancing and outage-risk dynamics.
 
+A separate defense case study also exists:
+
+- `defense_urban_response`: an urban road-network hostile-contagion response
+  benchmark with zombies, civilians, and defenders.
+
 Each system has an uncontrolled baseline plus controller-driven interventions.
 The goal is to compare which controller families reduce instability across
 different kinds of dynamics.
+
+For the urban defense case, the goal is different: compare which intervention
+policies eliminate zombies faster under a deliberately harsh pressure regime,
+with baseline intended to fail and stronger controllers expected to preserve
+force and reduce clearance time.
 
 The analysis is intended to be uniform: each benchmark system must have an
 explicit intervention action space, each non-baseline controller must choose
@@ -166,6 +178,57 @@ Tracked variables:
 - battery charge;
 - price index;
 - outage fraction.
+
+### Defense Urban Response
+
+The defense case lives in `defense_urban_response/`.
+
+It uses an organic road-network map rather than a grid, with neighborhood-like
+clusters and route alternatives. Agents:
+
+- zombies: mobile hostile agents that pursue civilians and defenders, convert
+  civilians on contact, and can cause zombie-win collapse if the force loses.
+- civilians: vulnerable noncombatants that flee when they can but are not
+  guaranteed to escape.
+- defenders: response agents that move on roads and actively engage zombies,
+  but can be depleted under pressure.
+
+Policies:
+
+- `baseline`: weak patrol with reduced mobility.
+- `rule_based`: direct visible-threat pursuit.
+- `monte_carlo`: short risk-heuristic target selection.
+- `codex_steady`: Codex consulted at fixed intervals.
+- `codex_guardian`: Codex consulted when the outbreak is worsening.
+
+Current pressure regime:
+
+- zombies start at `150` and move quickly;
+- civilians start at `300`;
+- defenders start at `30`;
+- zombies are directional road movers: they prefer continuing forward through
+  the road graph and branch at intersections rather than acting as pure random
+  walkers;
+- civilians flee nearby zombies but are slow and vulnerable;
+- defenders move faster than civilians, but the baseline is an unmanaged patrol
+  with reduced mobility and no targeting;
+- non-baseline defenders are directed by their controller policy;
+- zombies can convert or kill civilians on close contact;
+- zombies can kill defenders through probabilistic, density-driven swarm
+  pressure;
+- defender casualty risk increases with local zombie density and, for the
+  baseline, with broad unmanaged swarm pressure;
+- a zombie-victory condition ends the run when civilians or defenders are
+  effectively wiped out.
+
+Primary metric:
+
+- zombie elimination speed is the target, but the score is failure-adjusted.
+- zombie victory is an explicit failure mode and is penalized separately from
+  zombie clearance time so early baseline collapse cannot be mistaken for fast
+  successful clearance.
+- the dashboard now emphasizes zombie-victory rate and the failure-adjusted
+  elimination score; lower is better.
 
 ## Monte Carlo Design
 
