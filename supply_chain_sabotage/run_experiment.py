@@ -2,15 +2,15 @@
 import argparse
 from pathlib import Path
 
-from urban_response import (
-    BaselinePatrolPolicy,
-    CodexResponsePolicy,
-    DEFAULT_MAP,
-    MonteCarloResponsePolicy,
-    RuleBasedResponsePolicy,
-    UrbanResponseConfig,
+from sabotage_simulation import (
+    BaselinePolicy,
+    CodexSupplyChainPolicy,
+    MonteCarloPolicy,
+    RuleBasedPolicy,
+    SupplyChainConfig,
     run_repeated,
     save_outputs,
+    summarize,
 )
 
 
@@ -20,18 +20,11 @@ REPO_ROOT = ROOT.parent
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the urban road-network hostile-contagion response simulation."
+        description="Run the directed-graph supply-chain sabotage response simulation."
     )
-    parser.add_argument("--runs", type=int, default=5, help="Repeated runs per policy.")
+    parser.add_argument("--runs", type=int, default=20, help="Repeated runs per policy.")
     parser.add_argument("--steps", type=int, default=180, help="Simulation steps per run.")
-    parser.add_argument("--seed", type=int, default=20260609, help="Base random seed.")
-    parser.add_argument("--map", type=Path, default=DEFAULT_MAP, help="Road-network JSON path.")
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=REPO_ROOT / "results" / "zombies",
-        help="Directory for overwritten outputs.",
-    )
+    parser.add_argument("--seed", type=int, default=20260624, help="Base random seed.")
     parser.add_argument(
         "--include-codex",
         action="store_true",
@@ -53,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         "--codex-interval",
         type=int,
         default=25,
-        help="Steps between steady Codex tactic consultations.",
+        help="Steps between steady Codex intervention consultations.",
     )
     parser.add_argument(
         "--codex-timeout",
@@ -74,7 +67,13 @@ def parse_args() -> argparse.Namespace:
         "--progress-interval",
         type=int,
         default=20,
-        help="Print one simulation progress line every N steps. Use 0 to disable.",
+        help="Print progress every N steps. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=REPO_ROOT / "results" / "supply_chain_sabotage",
+        help="Directory for overwritten outputs.",
     )
     parser.set_defaults(include_codex=True)
     return parser.parse_args()
@@ -85,22 +84,23 @@ def main() -> None:
     output_dir = args.output_dir
     if not output_dir.is_absolute():
         output_dir = REPO_ROOT / output_dir
-    config = UrbanResponseConfig(steps=args.steps)
+
+    config = SupplyChainConfig(steps=args.steps)
     policies = [
-        BaselinePatrolPolicy(),
-        RuleBasedResponsePolicy(),
-        MonteCarloResponsePolicy(),
+        BaselinePolicy(),
+        RuleBasedPolicy(),
+        MonteCarloPolicy(),
     ]
     if args.include_codex:
         policies.extend(
             [
-                CodexResponsePolicy(
+                CodexSupplyChainPolicy(
                     name="codex_steady",
                     codex_command=args.codex_command,
                     decision_interval=args.codex_interval,
                     timeout_seconds=args.codex_timeout,
                 ),
-                CodexResponsePolicy(
+                CodexSupplyChainPolicy(
                     name="codex_guardian",
                     codex_command=args.codex_command,
                     decision_interval=args.codex_interval,
@@ -119,16 +119,23 @@ def main() -> None:
         policies=policies,
         runs=runs_by_policy,
         seed=args.seed,
-        map_path=args.map,
         progress_interval=args.progress_interval,
     )
     print("Simulation runs complete. Saving figures...", flush=True)
-    written = save_outputs(results, output_dir=output_dir, map_path=args.map)
-    print("Completed urban response simulation.")
+    written = save_outputs(results, output_dir)
+    summary = summarize(results)
+
+    print("Completed supply-chain sabotage simulation.")
     print(f"Runs per non-Codex policy: {args.runs}")
     if args.include_codex:
         print(f"Runs per Codex policy: {args.codex_runs}")
     print(f"Steps per run: {args.steps}")
+    print("Ranking lower-is-better:")
+    for item in summary["ranking_lower_is_better"]:
+        print(
+            f"- {item['policy']}: "
+            f"{item['sabotage_impact_score_lower_is_better']:.3f}"
+        )
     print("Wrote:")
     for path in written:
         print(f"- {_display_path(path, REPO_ROOT)}")

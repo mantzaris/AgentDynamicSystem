@@ -82,7 +82,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-agent-in-loop",
         action="store_true",
-        help="Include the Codex CLI agent-in-the-loop controller for grass/rabbit/fox.",
+        dest="include_agent_in_loop",
+        help="Include the Codex CLI agent-in-the-loop controller for grass/rabbit/fox. This is now the default.",
+    )
+    parser.add_argument(
+        "--no-agent-in-loop",
+        action="store_false",
+        dest="include_agent_in_loop",
+        help="Exclude the Codex CLI agent-in-the-loop controller.",
     )
     parser.add_argument(
         "--agent-decision-interval",
@@ -116,6 +123,7 @@ def parse_args() -> argparse.Namespace:
         default=ROOT / "results",
         help="Directory for overwritten aggregate outputs.",
     )
+    parser.set_defaults(include_agent_in_loop=True)
     return parser.parse_args()
 
 
@@ -158,7 +166,7 @@ def main() -> None:
     print(f"Steps per run: {args.steps}")
     print("Wrote:")
     for path in written:
-        print(f"- {path.relative_to(ROOT)}")
+        print(f"- {_display_path(path, ROOT)}")
 
 
 def run_grass_rabbit_fox(args: argparse.Namespace) -> tuple:
@@ -403,6 +411,13 @@ def _system_output_dir(output_dir: Path, system_name: str, selected_system: str)
     if selected_system == "all":
         return output_root / system_name
     return output_root
+
+
+def _display_path(path: Path, root: Path) -> Path:
+    try:
+        return path.relative_to(root)
+    except ValueError:
+        return path
 
 
 if __name__ == "__main__":

@@ -160,7 +160,7 @@ def main() -> None:
     print(f"Decision interval: {args.decision_interval}")
     print("Wrote:")
     for path in written:
-        print(f"- {path.relative_to(ROOT)}")
+        print(f"- {_display_path(path, ROOT)}")
 
 
 def run_grass_codex(args: argparse.Namespace) -> tuple:
@@ -395,6 +395,13 @@ def _system_output_dir(output_dir: Path, system_name: str, selected_system: str)
     if selected_system == "all":
         return output_root / system_name
     return output_root
+
+
+def _display_path(path: Path, root: Path) -> Path:
+    try:
+        return path.relative_to(root)
+    except ValueError:
+        return path
 
 
 if __name__ == "__main__":

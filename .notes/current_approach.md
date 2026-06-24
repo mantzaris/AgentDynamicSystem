@@ -19,6 +19,9 @@ A separate defense case study also exists:
 
 - `defense_urban_response`: an urban road-network hostile-contagion response
   benchmark with zombies, civilians, and defenders.
+- `supply_chain_sabotage`: a directed-graph supply-chain disruption benchmark
+  with suppliers, factories, warehouses, retailers, shipment routes, adversary
+  attacks, and random failures.
 
 Each system has an uncontrolled baseline plus controller-driven interventions.
 The goal is to compare which controller families reduce instability across
@@ -28,6 +31,15 @@ For the urban defense case, the goal is different: compare which intervention
 policies eliminate zombies faster under a deliberately harsh pressure regime,
 with baseline intended to fail and stronger controllers expected to preserve
 force and reduce clearance time.
+
+For the supply-chain sabotage case, the goal is to minimize unmet demand and
+economic loss after attacks by choosing where to build buffers, which routes to
+reinforce, and where to expedite or redirect shipments. It now uses the same
+controller comparison family as the zombie scenario: baseline, rule-based,
+Monte Carlo, `codex_steady`, and `codex_guardian`. The current version is a
+hardened stress test with burst attacks, demand surges, slower recovery, and
+stronger intervention leverage so baseline degradation is more clearly
+distinguishable from controlled response.
 
 The analysis is intended to be uniform: each benchmark system must have an
 explicit intervention action space, each non-baseline controller must choose
@@ -43,7 +55,7 @@ The common comparison set is:
 - `rule_based`: fixed interpretable threshold policy.
 - `look_ahead`: short-horizon rollout or aggregate forecast policy.
 
-An optional fifth method exists for `grass_rabbit_fox`:
+The default `grass_rabbit_fox` run also includes:
 
 - `agent_in_loop`: consults the local Codex CLI every 10 simulation steps and
   asks it to choose do nothing, cut, or fertilize from the current state. The
@@ -277,6 +289,11 @@ With `--system all`, outputs are grouped by system:
 - `results/supply_chain/`
 - `results/epidemic_city/`
 - `results/smart_grid/`
+
+The separate defense-oriented case studies write to:
+
+- `results/zombies/`
+- `results/supply_chain_sabotage/`
 
 Each system directory contains:
 

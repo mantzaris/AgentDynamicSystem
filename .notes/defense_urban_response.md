@@ -71,8 +71,11 @@ The dashboard should show:
 ## Main Command
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --include-codex --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
+.venv/bin/python defense_urban_response/run_experiment.py --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
 ```
+
+Codex policies are included by default. Use `--no-codex` only for a
+deliberately non-Codex run.
 
 Outputs overwrite:
 

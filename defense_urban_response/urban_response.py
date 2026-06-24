@@ -359,7 +359,7 @@ class CodexResponsePolicy(RuleBasedResponsePolicy):
             elapsed = time.monotonic() - started_at
             print(
                 f"  {self.name}: Codex unavailable after {elapsed:.1f}s "
-                f"({type(exc).__name__}); using nearest_threat.",
+                f"({_format_codex_exception(exc)}); using nearest_threat.",
                 flush=True,
             )
             return "nearest_threat"
@@ -389,7 +389,7 @@ class CodexResponsePolicy(RuleBasedResponsePolicy):
                 input=prompt,
                 text=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 timeout=self.timeout_seconds,
                 check=True,
             )
@@ -1096,3 +1096,11 @@ def _extract_session_id(value) -> Optional[str]:
             if nested is not None:
                 return nested
     return None
+
+
+def _format_codex_exception(exc: Exception) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        stderr = (exc.stderr or "").strip()
+        if stderr:
+            return f"{type(exc).__name__}: {stderr.splitlines()[-1]}"
+    return type(exc).__name__

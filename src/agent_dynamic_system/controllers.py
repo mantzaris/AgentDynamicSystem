@@ -527,7 +527,7 @@ class CodexAgentInLoopController(Controller):
                 input=prompt,
                 text=True,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 timeout=self.timeout_seconds,
                 check=True,
             )

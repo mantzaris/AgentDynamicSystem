@@ -60,17 +60,19 @@ The benchmark currently compares:
 - `control_theory`: aggregate feedback controller.
 - `rule_based`: interpretable threshold policy.
 - `look_ahead`: short-horizon rollout policy.
-- `agent_in_loop`: optional Codex CLI controller for `grass_rabbit_fox`.
+- `agent_in_loop`: Codex CLI controller for `grass_rabbit_fox`, included by
+  default.
 
-Run the optional Codex agent-in-the-loop comparison with:
+Run the default comparison with Codex included:
 
 ```bash
-.venv/bin/python scripts/run_experiments.py --include-agent-in-loop
+.venv/bin/python scripts/run_experiments.py
 ```
 
-That mode is not repeated across the Monte Carlo batch by default. With the
-default `500` steps and `10`-step decision interval, it makes `50` Codex
-consultations total.
+The Codex agent-in-loop mode is not repeated across the Monte Carlo batch by
+default. With the default `500` steps and `10`-step decision interval, it makes
+`50` Codex consultations total. Use `--no-agent-in-loop` only for a deliberately
+non-Codex run.
 
 If Codex is installed under a different command name, pass it with
 `--agent-codex-command`.

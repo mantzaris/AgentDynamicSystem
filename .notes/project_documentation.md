@@ -32,7 +32,7 @@ The system compares:
 - `look_ahead`: a random shooting policy that samples possible action
   sequences, simulates their aggregate effects 10 steps ahead, and applies the
   first action from the lowest-instability sequence.
-- `agent_in_loop`: an optional local Codex CLI policy that is consulted every
+- `agent_in_loop`: a local Codex CLI policy that is consulted every
   10 simulation steps and returns a grass action for the current state. It
   starts a Codex session on the first consultation and resumes the same session
   for later state updates when the CLI exposes a resumable session id.
@@ -73,7 +73,7 @@ Run the separate Codex-in-the-loop benchmark:
 Run the defense urban-response benchmark:
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --include-codex --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
+.venv/bin/python defense_urban_response/run_experiment.py --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
 ```
 
 Run a single additional system:
@@ -98,16 +98,16 @@ Optional overrides:
 .venv/bin/python scripts/run_experiments.py --runs 10 --steps 300 --seed 123
 ```
 
-Include the optional Codex agent-in-the-loop method:
+The Codex agent-in-the-loop method is included by default:
 
 ```bash
-.venv/bin/python scripts/run_experiments.py --include-agent-in-loop
+.venv/bin/python scripts/run_experiments.py
 ```
 
 If needed, choose a different Codex executable name or path with:
 
 ```bash
-.venv/bin/python scripts/run_experiments.py --include-agent-in-loop --agent-codex-command /path/to/codex
+.venv/bin/python scripts/run_experiments.py --agent-codex-command /path/to/codex
 ```
 
 The agent-in-loop method can make many local Codex calls during Monte Carlo
@@ -118,7 +118,7 @@ For the default `500` steps and a 10-step consultation interval, it creates
 The agent-in-loop run count can be changed separately:
 
 ```bash
-.venv/bin/python scripts/run_experiments.py --include-agent-in-loop --agent-runs 2
+.venv/bin/python scripts/run_experiments.py --agent-runs 2
 ```
 
 ## Local Python Environment
@@ -170,16 +170,15 @@ src/agent_dynamic_system/controllers.py
 
 Defines the controller interface, the no-control baseline, the current PI-style
 grass controller, the rule-based stability controller, the look-ahead
-mini-simulation controller, and the optional Codex agent-in-loop controller.
+mini-simulation controller, and the Codex agent-in-loop controller.
 
 ```text
 src/agent_dynamic_system/experiment.py
 ```
 
 Runs repeated simulations for each scenario using matched seeds. The runner can
-assign a different repeat count to a scenario; this is used so the optional
-Codex agent-in-loop method defaults to one run instead of the full Monte Carlo
-batch.
+assign a different repeat count to a scenario; this is used so the Codex
+agent-in-loop method defaults to one run instead of the full Monte Carlo batch.
 
 ```text
 src/agent_dynamic_system/benchmark.py
@@ -352,7 +351,54 @@ Metrics and interpretation:
 Primary run command:
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --include-codex --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
+.venv/bin/python defense_urban_response/run_experiment.py --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
+```
+
+## Supply-Chain Sabotage Case Study
+
+The directed-graph sabotage case lives in:
+
+```text
+supply_chain_sabotage/
+```
+
+It is separate from the generic aggregate `supply_chain` benchmark. The graph
+contains 6 suppliers, 4 factories, 6 warehouses, 8 retailer/mission demand
+points, and 52 directed shipment routes.
+
+The current version is a high-pressure stress test. It uses frequent attacks,
+burst attacks, random failures, stochastic demand surges, slower recovery, and
+reduced normal shipment throughput. The interventions were also strengthened
+so controllers can still improve outcomes through buffers, route
+reinforcement, and expedited shipments.
+
+Controller set:
+
+- `baseline`
+- `rule_based`
+- `monte_carlo`
+- `codex_steady`
+- `codex_guardian`
+
+Metric:
+
+- lower-is-better sabotage impact score, combining unmet demand, economic
+  loss, service-level failure, and low terminal inventory.
+
+Latest regenerated stress-test ranking:
+
+| Policy | Impact score | Mean service level | Mean unmet demand |
+| --- | ---: | ---: | ---: |
+| `codex_guardian` | 12.467 | 0.735 | 14,880.8 |
+| `rule_based` | 13.037 | 0.719 | 15,662.5 |
+| `monte_carlo` | 13.821 | 0.701 | 16,706.8 |
+| `codex_steady` | 15.891 | 0.650 | 19,629.1 |
+| `baseline` | 19.061 | 0.568 | 24,058.6 |
+
+Primary run command:
+
+```bash
+.venv/bin/python supply_chain_sabotage/run_experiment.py --runs 10 --codex-runs 1 --steps 180 --progress-interval 30
 ```
 
 ## Simulation Step Order
@@ -451,7 +497,7 @@ surrogate model.
 
 ## Codex Agent-In-The-Loop Controller
 
-The optional agent-in-loop controller is named:
+The agent-in-loop controller is named:
 
 ```text
 agent_in_loop
@@ -700,8 +746,7 @@ are:
 - `results/rule_based.pdf`
 - `results/look_ahead.png`
 - `results/look_ahead.pdf`
-- `results/agent_in_loop.png` and `results/agent_in_loop.pdf` when
-  `--include-agent-in-loop` is used.
+- `results/agent_in_loop.png` and `results/agent_in_loop.pdf` by default.
 - `results/dashboard.png`
 - `results/dashboard.pdf`
 - `results/summary.json`
@@ -785,8 +830,8 @@ The latest generated result used:
 - runs: `30`
 - steps: `500`
 - base seed: `20260607`
-- default scenarios: `baseline`, `control_theory`, `rule_based`, `look_ahead`
-- optional `agent_in_loop`: not included in the latest saved full result
+- default scenarios: `baseline`, `control_theory`, `rule_based`, `look_ahead`,
+  `agent_in_loop`
 - initial rabbits: `300`
 - initial foxes: `20`
 - rabbit safety floor: `50`

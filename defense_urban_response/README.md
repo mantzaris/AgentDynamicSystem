@@ -27,8 +27,8 @@ For publication-grade geospatial fidelity, replace
 - `rule_based`: defenders move toward visible or civilian-threatening zombies.
 - `monte_carlo`: defenders choose targets using a short risk heuristic over
   candidate threats.
-- `codex_steady`: optional Codex tactic advisor called at fixed intervals.
-- `codex_guardian`: optional Codex tactic advisor called when the outbreak is
+- `codex_steady`: Codex tactic advisor called at fixed intervals.
+- `codex_guardian`: Codex tactic advisor called when the outbreak is
   worsening.
 
 The paper-facing framing should use terms like hostile contagion, urban response
@@ -43,30 +43,33 @@ From the repository root:
 .venv/bin/python defense_urban_response/run_experiment.py
 ```
 
-The default run is `5` repeats per non-Codex policy and `180` steps per run.
+The default run includes Codex policies. It uses `5` repeats per non-Codex
+policy, `1` repeat per Codex policy, and `180` steps per run.
 The current hard-pressure defaults start with `150` zombies, `300` civilians,
 and `30` defenders. Use `--runs` and `--steps` to scale up for final figures.
 
-Include Codex policies:
+Default Codex-inclusive run:
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --include-codex
+.venv/bin/python defense_urban_response/run_experiment.py
 ```
 
-When Codex is enabled, real Codex policies default to `1` repeat each because
-they launch subprocess consultations during the simulation. Use `--codex-runs`
-to scale them up later, and `--codex-timeout` to cap each decision call.
+Real Codex policies default to `1` repeat each because they launch subprocess
+consultations during the simulation. Use `--codex-runs` to scale them up later,
+and `--codex-timeout` to cap each decision call.
 Progress prints every 20 simulation steps by default; change this with
 `--progress-interval`:
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --include-codex --codex-runs 1 --codex-timeout 45 --progress-interval 20
+.venv/bin/python defense_urban_response/run_experiment.py --codex-runs 1 --codex-timeout 45 --progress-interval 20
 ```
 
-No-Codex smoke test for fallback behavior:
+Use `--no-codex` only for a deliberately non-Codex run.
+
+Codex fallback smoke test:
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --runs 1 --steps 40 --include-codex --codex-command not-a-real-codex-command --codex-timeout 1 --output-dir results_smoke
+.venv/bin/python defense_urban_response/run_experiment.py --runs 1 --steps 40 --codex-command not-a-real-codex-command --codex-timeout 1 --output-dir results_smoke
 ```
 
 Outputs are overwritten under repo-level `results/zombies/` by default:

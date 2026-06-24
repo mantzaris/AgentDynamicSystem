@@ -22,3 +22,7 @@ defense_urban_response/results_smoke/
 defense_urban_response/results_smoke_nocodex/
 defense_urban_response/results_validation/
 defense_urban_response/.cache/
+supply_chain_sabotage/results/
+supply_chain_sabotage/results_smoke/
+supply_chain_sabotage/results_smoke_codex/
+supply_chain_sabotage/.cache/
