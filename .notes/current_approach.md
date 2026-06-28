@@ -36,10 +36,25 @@ For the supply-chain sabotage case, the goal is to minimize unmet demand and
 economic loss after attacks by choosing where to build buffers, which routes to
 reinforce, and where to expedite or redirect shipments. It now uses the same
 controller comparison family as the zombie scenario: baseline, rule-based,
-Monte Carlo, `codex_steady`, and `codex_guardian`. The current version is a
-hardened stress test with burst attacks, demand surges, slower recovery, and
-stronger intervention leverage so baseline degradation is more clearly
-distinguishable from controlled response.
+Monte Carlo, `codex_steady`, `codex_guardian`, and Codex-Monte-Carlo hybrids.
+The current version is a hardened stress test with burst attacks, demand
+surges, slower recovery, and stronger intervention leverage so baseline
+degradation is more clearly distinguishable from controlled response.
+
+The current final supply-chain result is a boundary result: Monte Carlo is the
+best controller when the scenario is numeric-only and the action space is
+compact. The Codex variants improve over baseline but do not beat Monte Carlo.
+This should be framed honestly rather than tuned away. The next proposed
+supply-chain step is a qualitative resilience extension with human trust,
+compliance, workforce fatigue, carrier cooperation, unstructured incident
+reports, and legitimacy constraints. That design is documented in
+`.notes/supply_chain_qualitative_extension.md`.
+
+Paper-ready supply-chain results are stored in
+`results/supply_chain_sabotage_paper/`. The accompanying README in that
+directory contains the interpretation to use in the paper: Monte Carlo wins the
+numeric-only study, while the Codex-Monte-Carlo qualitative admin hybrid wins
+the sociotechnical study among deployable controllers.
 
 The analysis is intended to be uniform: each benchmark system must have an
 explicit intervention action space, each non-baseline controller must choose

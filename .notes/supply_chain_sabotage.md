@@ -74,15 +74,22 @@ Intervention leverage was also increased:
 ## Controllers
 
 - `baseline`: no defensive action.
-- `rule_based`: protect the most exposed node and reinforce/expedite a critical
-  route.
+- `rule_based`: generic SOP-style controller using reported fill ratios, route
+  health, and recent service drops. It does not use scenario-specific node
+  names or hand-picked bottlenecks.
 - `monte_carlo`: sample candidate buffer/reinforce/expedite actions and choose
   the lowest short-horizon risk option.
 - `codex_steady`: call the local Codex CLI at a fixed interval and ask it to
-  choose one high-level tactic from the constrained supply-chain action
-  vocabulary.
+  choose concrete buffer, reinforce, and expedite actions under the same action
+  budget.
 - `codex_guardian`: call the local Codex CLI only when recent unmet demand,
   service level, or economic loss is worsening.
+- `codex_monte_carlo`: ask Codex to propose extra candidates, then let the
+  default Monte Carlo verifier choose from native plus Codex candidates.
+- `codex_monte_carlo_admin`: ask Codex to configure the Monte Carlo search
+  mix, risk mode, priorities, and bounded sample multiplier.
+- `codex_monte_carlo_judge`: score a native plus generic expanded Monte Carlo
+  shortlist, then ask Codex to select one candidate subject to a guardrail.
 
 Intervention actions:
 
@@ -90,13 +97,12 @@ Intervention actions:
 - reinforce routes;
 - expedite or redirect shipments.
 
-Codex tactics are deliberately constrained to the same action space as the
-non-Codex controllers:
-
-- `buffer_critical`;
-- `reinforce_bottleneck`;
-- `expedite_shortage`;
-- `combined_response`.
+All controllers see the same delayed, noisy, quantized telemetry snapshot. The
+Codex prompts do not expose hidden simulator state. All policies share the same
+per-step action budget and the same replanning cadence in the final comparison.
+Policy-internal sampling uses a separate random stream from exogenous attacks,
+failures, and demand noise, so evaluating more candidates does not change the
+disturbance sequence in paired runs.
 
 ## Metrics
 
@@ -104,32 +110,87 @@ The lower-is-better sabotage impact score combines:
 
 - total unmet demand;
 - total economic loss;
-- service-level failure;
-- low terminal inventory.
+- average service-level failure;
+- low terminal inventory;
+- average normalized action budget used.
 
-## Latest Stress-Test Result
+## Final Numeric-Only Result
 
-The latest regenerated output in `results/supply_chain_sabotage/summary.json`
-uses `10` non-Codex runs, `1` Codex run per Codex policy, and `180` steps.
+The paper-ready output is in `results/supply_chain_sabotage_paper/`. It is
+copied from the completed `results/supply_chain_sabotage_combined_final/` run
+and includes both the numeric-only study and qualitative sociotechnical study.
+The copied qualitative summary uses the corrected
+`q_structured_human_state_monte_carlo` policy name directly.
+
+The current numeric-only paper result in
+`results/supply_chain_sabotage_paper/numeric_only/summary.json` uses `30`
+paired runs for every policy, `180` steps, shared `25`-step control cadence,
+noisy shared telemetry, and the same normalized action budget.
 
 Lower impact score is better:
 
-| Policy | Impact score | Mean service level | Mean unmet demand |
-| --- | ---: | ---: | ---: |
-| `codex_guardian` | 12.467 | 0.735 | 14,880.8 |
-| `rule_based` | 13.037 | 0.719 | 15,662.5 |
-| `monte_carlo` | 13.821 | 0.701 | 16,706.8 |
-| `codex_steady` | 15.891 | 0.650 | 19,629.1 |
-| `baseline` | 19.061 | 0.568 | 24,058.6 |
+| Policy | Impact score | Mean service level | Mean unmet demand | Mean budget |
+| --- | ---: | ---: | ---: | ---: |
+| `monte_carlo` | 13.275 | 0.714 | 15,949.4 | 0.448 |
+| `codex_monte_carlo` | 13.564 | 0.707 | 16,332.1 | 0.448 |
+| `codex_monte_carlo_admin` | 13.745 | 0.703 | 16,506.2 | 0.565 |
+| `codex_monte_carlo_judge` | 14.044 | 0.693 | 17,007.0 | 0.458 |
+| `codex_steady` | 15.400 | 0.665 | 18,570.8 | 0.710 |
+| `rule_based` | 15.734 | 0.651 | 19,406.5 | 0.237 |
+| `baseline` | 18.867 | 0.571 | 23,790.4 | 0.000 |
+| `codex_guardian` | 18.867 | 0.571 | 23,790.4 | 0.000 |
 
-Interpretation: the baseline now experiences visibly worse service degradation
-and much higher unmet demand, while controllers reduce impact by choosing
-buffers, route reinforcement, and expedited shipments.
+Paired comparison against `monte_carlo`:
+
+- `codex_monte_carlo`: mean score delta `+0.289`; win rate `1/30`.
+- `codex_monte_carlo_admin`: mean score delta `+0.470`; win rate `0/30`.
+- `codex_monte_carlo_judge`: mean score delta `+0.769`; win rate `0/30`.
+- `rule_based`: mean score delta `+2.458`; win rate `0/30`.
+
+Decision diagnostics:
+
+- `codex_monte_carlo` selected Codex-proposed candidates `14` times and native
+  Monte Carlo candidates `66` times.
+- `codex_monte_carlo_admin` selected guided candidates `41` times and native
+  candidates `39` times.
+- `codex_monte_carlo_judge` selected expanded-slate candidates `67` times and
+  native/default candidates `13` times.
+
+Interpretation: Monte Carlo is the best controller in the current numeric-only
+supply-chain formulation. This is not a failure of the benchmark. It is a
+boundary result: when the state, action space, and objective are numeric,
+compact, and simulator-aligned, a conventional model-based search controller is
+expected to outperform a language-model controller. The Codex variants improve
+substantially over baseline, but they do not beat Monte Carlo.
+
+The `codex_monte_carlo_judge` result is especially informative. Codex often
+selected candidates from the expanded slate, and those selections had lower
+internal proxy scores in aggregate, but the final closed-loop simulation score
+was worse. That means the expanded slate was exploiting the short-horizon proxy
+rather than improving the true long-run system objective.
+
+This result should be reported honestly as evidence that agent-in-the-loop
+control is not automatically superior to conventional search on fully specified
+numeric control problems. The next scientific question is where qualitative
+interpretation, institutional constraints, and human behavior make the control
+problem partially semantic rather than purely numeric.
+
+See `.notes/supply_chain_qualitative_extension.md` for the qualitative
+sociotechnical scenario design. That design is now implemented as the
+`qualitative` study in `supply_chain_sabotage/run_experiment.py`. The
+paper-ready interpretation is documented beside the copied result artifacts in
+`results/supply_chain_sabotage_paper/README.md`.
 
 ## Main Command
 
 ```bash
-.venv/bin/python supply_chain_sabotage/run_experiment.py --runs 30 --codex-runs 1 --steps 180 --progress-interval 20
+.venv/bin/python supply_chain_sabotage/run_experiment.py --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 0 --output-dir results/supply_chain_sabotage_final
+```
+
+Combined numeric plus qualitative command:
+
+```bash
+.venv/bin/python supply_chain_sabotage/run_experiment.py --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 0 --output-dir results/supply_chain_sabotage_combined_final
 ```
 
 Codex policies are included by default. Use `--no-codex` only for a

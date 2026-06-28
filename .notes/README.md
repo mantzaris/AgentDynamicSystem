@@ -7,3 +7,9 @@
   rules, policies, scoring, and run command.
 - `supply_chain_sabotage.md`: directed-graph supply-chain sabotage setup,
   intervention policies, metrics, and run command.
+- `supply_chain_qualitative_extension.md`: proposed human-organizational
+  extension for testing qualitative agent reasoning rather than numeric-only
+  control search.
+
+Paper-ready supply-chain sabotage outputs and interpretation are in
+`results/supply_chain_sabotage_paper/README.md`.
