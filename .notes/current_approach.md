@@ -222,11 +222,74 @@ clusters and route alternatives. Agents:
 
 Policies:
 
+Numeric tactical policies:
+
 - `baseline`: weak patrol with reduced mobility.
 - `rule_based`: direct visible-threat pursuit.
-- `monte_carlo`: short risk-heuristic target selection.
+- `monte_carlo`: randomized candidate target-assignment search.
 - `codex_steady`: Codex consulted at fixed intervals.
 - `codex_guardian`: Codex consulted when the outbreak is worsening.
+- `codex_monte_carlo`: Codex proposes extra tactic candidates for local Monte
+  Carlo verification.
+- `codex_monte_carlo_admin`: Codex configures the Monte Carlo risk mode and
+  tactic priorities.
+- `codex_monte_carlo_judge`: Codex judges a scored Monte Carlo tactic slate
+  under a bounded override tolerance.
+
+Codex-inclusive urban runs use a shared control-update interval, so non-Codex
+controllers do not replan more frequently than Codex-family controllers.
+
+Sociotechnical qualitative policies:
+
+- `q_baseline`: unmanaged patrol and no social intervention.
+- `q_monte_carlo_tactical`: physical Monte Carlo only.
+- `q_keyword_monte_carlo`: weak lexical trigger for explicitly labeled reports.
+- `q_structured_human_state_monte_carlo`: strong structured human-state
+  heuristic reference.
+- `q_codex_qualitative`: Codex interprets reports and chooses tactical/social
+  action.
+- `q_codex_monte_carlo_qualitative_admin`: Codex configures social action and
+  tactical priorities for local Monte Carlo.
+
+The qualitative urban layer tracks trust, compliance, panic, rumor pressure,
+route clarity, repeated-message fatigue, responder fatigue, and institutional
+friction. It is the direct parallel to the supply-chain human-organizational
+study. Its scoring is caveat-checked so a policy cannot credibly win only by
+improving physical clearance while worsening panic, rumor pressure, route
+confusion, message fatigue, compliance, trust, or responder fatigue. Physical
+and human components are reported separately, and social actions have local
+spillover effects on the target district and nearby districts.
+
+The social layer now has conditional effects and backfire modes: public
+messaging is not always useful, guidance depends on route clarity and trust,
+liaison is slower but more durable, and responder rotation trades short-term
+capacity for future reliability. District archetypes and adjacent-district
+diffusion make this a semantic/causal interpretation problem rather than a
+single report-to-action lookup.
+
+The report generator no longer hands the keyword baseline direct labels for
+normal reports. Reports describe observable behavior and coordination symptoms,
+so the Codex qualitative controller is tested on semantic interpretation in the
+same spirit as the supply-chain qualitative study.
+
+Current urban qualitative result:
+
+- Result file: `results/urban_response_social_complexity_admin_fixed_50/summary.json`
+- Interpretation file:
+  `results/urban_response_social_complexity_admin_fixed_50/INTERPRETATION.md`
+- `q_structured_human_state_monte_carlo`: `49.339`
+- `q_codex_monte_carlo_qualitative_admin`: `50.359`
+- `q_codex_qualitative`: `50.748`
+- `q_monte_carlo_tactical`: `51.487`
+- `q_keyword_monte_carlo`: `51.487`
+- `q_baseline`: `51.865`
+
+This reinforces the supply-chain conclusion directionally but not decisively.
+Codex-admin improves over the best deployable non-Codex baseline by `-1.128`
+mean score with 95% CI `[-2.862, 0.607]`; direct Codex improves by `-0.739`
+with 95% CI `[-2.508, 1.030]`. The CIs cross zero, so this is cross-domain
+support rather than the primary positive result. The strongest positive result
+remains the supply-chain qualitative study.
 
 Current pressure regime:
 
@@ -307,8 +370,14 @@ With `--system all`, outputs are grouped by system:
 
 The separate defense-oriented case studies write to:
 
-- `results/zombies/`
+- `results/urban_response/`
 - `results/supply_chain_sabotage/`
+
+The urban response runner now writes two subdirectories when `--study both` is
+used:
+
+- `results/urban_response/numeric_only/`
+- `results/urban_response/qualitative_response/`
 
 Each system directory contains:
 

@@ -73,7 +73,7 @@ Run the separate Codex-in-the-loop benchmark:
 Run the defense urban-response benchmark:
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
+.venv/bin/python defense_urban_response/run_experiment.py --study both --runs 10 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --progress-interval 20 --codex-timeout 45 --output-dir results/urban_response_final
 ```
 
 Run a single additional system:
@@ -332,11 +332,78 @@ Current dynamics:
 
 Policies:
 
+Numeric tactical policies:
+
 - `baseline`: unmanaged patrol.
 - `rule_based`: visible-threat and civilian-threat targeting.
-- `monte_carlo`: short risk-heuristic targeting.
+- `monte_carlo`: randomized candidate target-assignment search.
 - `codex_steady`: Codex tactic advisor at fixed intervals.
 - `codex_guardian`: Codex tactic advisor when the outbreak worsens.
+- `codex_monte_carlo`: Codex proposes extra tactic candidates for local Monte
+  Carlo verification.
+- `codex_monte_carlo_admin`: Codex configures the Monte Carlo risk mode and
+  tactic priorities.
+- `codex_monte_carlo_judge`: Codex judges a scored Monte Carlo tactic slate
+  under a bounded override tolerance.
+
+Codex-inclusive runs use a shared `control_update_interval`, so all controllers
+receive policy replanning opportunities on the same cadence.
+
+Sociotechnical qualitative policies:
+
+- `q_baseline`: unmanaged patrol and no social intervention.
+- `q_monte_carlo_tactical`: physical Monte Carlo only.
+- `q_keyword_monte_carlo`: physical Monte Carlo plus a weak lexical trigger for
+  explicitly labeled qualitative reports.
+- `q_structured_human_state_monte_carlo`: strong structured human-state
+  heuristic reference.
+- `q_codex_qualitative`: Codex interprets qualitative reports and chooses
+  bounded tactical/social action.
+- `q_codex_monte_carlo_qualitative_admin`: Codex configures social action and
+  tactical priorities for local Monte Carlo.
+
+The qualitative layer tracks neighborhood trust, compliance, panic, rumor
+pressure, route clarity, repeated-message fatigue, responder fatigue, and
+institutional friction. This is the urban parallel to the supply-chain
+qualitative human-organizational study. The score reports physical and human
+components separately and gives the human component material weight, so a
+controller should not rank first merely by clearing hostiles while worsening
+panic, rumor pressure, route confusion, message fatigue, compliance, trust, or
+responder fatigue.
+
+Social interventions are conditional. Broadcasts can backfire under low trust
+or repeated-message fatigue; route guidance works best when route clarity is
+low and trust is adequate; liaison repairs low legitimacy; shelter and medical
+triage address panic-driven immobility; responder rotation lowers fatigue at a
+coordination cost. District archetypes and adjacent-district diffusion make the
+controller infer causal social conditions from text reports.
+
+Normal qualitative reports now describe observed behavior rather than direct
+hidden-state labels. This prevents the keyword baseline from functioning as a
+tailored decoder and makes the urban qualitative task match the supply-chain
+finding more closely: Codex is evaluated on interpreting qualitative reports and
+administering bounded social/tactical controls.
+
+Current paper-facing urban qualitative result:
+
+```text
+results/urban_response_social_complexity_admin_fixed_50/summary.json
+results/urban_response_social_complexity_admin_fixed_50/INTERPRETATION.md
+```
+
+The run uses 50 paired qualitative runs after fixing the Codex-admin
+zero-intensity action issue. `q_structured_human_state_monte_carlo` ranks first
+at `49.339`; `q_codex_monte_carlo_qualitative_admin` ranks second at `50.359`;
+`q_codex_qualitative` ranks third at `50.748`; deployable non-Codex
+baselines are worse at `51.487`. Codex-admin improves over the deployable
+baseline by `-1.128` mean score, but the 95% CI crosses zero
+(`[-2.862, 0.607]`).
+
+Interpretation for the manuscript: this urban result reinforces the
+supply-chain sabotage conclusion directionally. It should be presented as
+cross-domain support that Codex-style controllers are useful when qualitative
+sociotechnical reports must be interpreted into bounded controls, not as a
+decisive standalone urban victory.
 
 Metrics and interpretation:
 
@@ -351,7 +418,7 @@ Metrics and interpretation:
 Primary run command:
 
 ```bash
-.venv/bin/python defense_urban_response/run_experiment.py --runs 10 --codex-runs 10 --steps 180 --progress-interval 20 --codex-timeout 45
+.venv/bin/python defense_urban_response/run_experiment.py --study both --runs 10 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --progress-interval 20 --codex-timeout 45 --output-dir results/urban_response_final
 ```
 
 ## Supply-Chain Sabotage Case Study
