@@ -16,6 +16,23 @@ The system is a directed multi-region graph:
   city districts, ports, shelters, and remote outposts;
 - 52 directed edges carry shipments with finite capacity and health.
 
+The default topology is preserved for the paper result already documented
+below. A larger cyclic topology is also available with
+`--network-topology cyclic_large`. It uses the same controllers, metrics,
+telemetry model, and output pipeline, but expands the physical graph to:
+
+- 9 suppliers;
+- 6 factories;
+- 10 warehouses;
+- 12 retailer/demand points;
+- 127 directed edges.
+
+The larger graph adds factory rework loops, a bidirectional warehouse cycle,
+cross-cycle warehouse chords, and retailer mutual-aid links. This makes the
+next supply-chain experiment less like a compact acyclic dispatch problem and
+more like a resilient network-control problem with redundant paths, cycles,
+and second-order routing choices.
+
 Nodes track:
 
 - inventory;
@@ -226,6 +243,12 @@ Final-style equal-run comparison:
 .venv/bin/python supply_chain_sabotage/run_experiment.py --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 0 --output-dir results/supply_chain_sabotage_combined_final
 ```
 
+Larger cyclic-network comparison:
+
+```bash
+.venv/bin/python supply_chain_sabotage/run_experiment.py --network-topology cyclic_large --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 20 --codex-timeout 45 --output-dir results/supply_chain_sabotage_cyclic_large_30
+```
+
 The default telemetry model updates observations every `3` steps with `8%`
 inventory noise and `0.035` health noise. Adjust these with
 `--observation-update-interval`, `--inventory-report-noise`, and
@@ -244,6 +267,8 @@ Print the summary table:
 ```bash
 .venv/bin/python supply_chain_sabotage/show_results.py results/supply_chain_sabotage_combined_final/numeric_only/summary.json
 .venv/bin/python supply_chain_sabotage/show_results.py results/supply_chain_sabotage_combined_final/qualitative_resilience/summary.json
+.venv/bin/python supply_chain_sabotage/show_results.py results/supply_chain_sabotage_cyclic_large_30/numeric_only/summary.json
+.venv/bin/python supply_chain_sabotage/show_results.py results/supply_chain_sabotage_cyclic_large_30/qualitative_resilience/summary.json
 ```
 
 Use `--no-codex` only for a deliberately non-Codex run:

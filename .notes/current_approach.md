@@ -56,6 +56,29 @@ directory contains the interpretation to use in the paper: Monte Carlo wins the
 numeric-only study, while the Codex-Monte-Carlo qualitative admin hybrid wins
 the sociotechnical study among deployable controllers.
 
+The next supply-chain escalation is implemented as
+`--network-topology cyclic_large` inside `supply_chain_sabotage/`. It keeps the
+same controllers and scoring but expands the graph from 24 nodes/52 edges to
+37 nodes/127 edges with supplier diversity, factory rework loops, a
+bidirectional warehouse cycle, warehouse cross-links, and retailer mutual-aid
+edges. This should be used as a topology-complexity sensitivity study: it tests
+whether the compact-network conclusion still holds when the logistics graph has
+more cycles and redundant routing choices.
+
+The completed cyclic-large result is in
+`results/supply_chain_sabotage_cyclic_large_30/`. It reinforces the same
+methodological conclusion. In the numeric-only branch, plain Monte Carlo still
+wins (`15.976`) and `codex_monte_carlo_admin` is close but significantly worse
+(`16.227`; paired delta `+0.251`, 95% CI `[0.191, 0.311]`). In the qualitative
+sociotechnical branch, the Codex-Monte-Carlo qualitative administrator is the
+best deployable controller (`79.086`) and beats the best deployable non-Codex
+controller, `q_keyword_monte_carlo` (`83.980`), by paired delta `-4.895` with
+95% CI `[-5.166, -4.623]` and win rate `30/30`. The stronger
+`q_structured_human_state_monte_carlo` reference remains best overall
+(`78.251`), so the claim should be that Codex guidance is valuable as a
+semantic administrator over Monte Carlo, not that Codex replaces a structured
+human-state oracle or beats Monte Carlo on purely numeric search.
+
 The analysis is intended to be uniform: each benchmark system must have an
 explicit intervention action space, each non-baseline controller must choose
 from that action space, and dashboards must show both state trajectories and

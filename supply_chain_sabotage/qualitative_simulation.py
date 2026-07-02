@@ -27,6 +27,7 @@ from sabotage_simulation import (
     _intervention_budget,
     _intervention_from_codex_payload,
     _intervention_to_dict,
+    _network_context,
     _normalize_intervention,
     _observed_network,
     _parse_edge,
@@ -386,7 +387,7 @@ def run_qualitative_simulation(
     policy_rng = np.random.default_rng(seed + 917_503)
     human_rng = np.random.default_rng(seed + 471_221)
     observation_rng = np.random.default_rng(seed + 884_911)
-    network = SupplyChainNetwork()
+    network = SupplyChainNetwork(config.base.network_topology)
     human = HumanLayerState.initialize(network, human_rng)
     observed_network = _observed_network(network, config.base, observation_rng)
 
@@ -1357,6 +1358,7 @@ def _codex_qualitative_prompt(
             "fatigue, carrier cooperation, and equity states."
         ),
         "mode": "monte_carlo_admin" if admin_mode else "direct_action",
+        "network_context": _network_context(network),
         "recent_history": history[-8:],
         "reports": reports,
         "action_budget": config.base.action_budget,

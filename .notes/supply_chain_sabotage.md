@@ -11,7 +11,7 @@ This is separate from the generic aggregate supply-chain system in
 
 ## Network
 
-The graph contains:
+The default graph contains:
 
 - 6 suppliers;
 - 4 factories;
@@ -21,6 +21,109 @@ The graph contains:
 
 Nodes have inventory, capacity, health, storage limits, and demand for
 retailers. Edges have shipment capacity, health, and reinforcement state.
+
+## Larger Cyclic Topology
+
+A larger network-control scenario is implemented behind
+`--network-topology cyclic_large`. It stays in `supply_chain_sabotage/` rather
+than a separate directory so it can reuse the same controllers, qualitative
+extension, telemetry assumptions, metrics, and plotting code.
+
+The cyclic-large graph contains:
+
+- 9 suppliers;
+- 6 factories;
+- 10 warehouses;
+- 12 retailer and mission demand points;
+- 127 directed shipment edges.
+
+The extension adds:
+
+- factory transfer and rework loops;
+- a bidirectional warehouse cycle;
+- cross-cycle warehouse chords;
+- multiple downstream retailer options;
+- retailer mutual-aid links.
+
+Purpose: this is the next escalation after the compact supply-chain result.
+The original numeric-only result shows that Monte Carlo wins when the problem
+is small, fully numeric, and simulator-aligned. The cyclic-large topology tests
+whether that conclusion holds when network structure has more cycles,
+redundant paths, and routing tradeoffs. It should be interpreted as a topology
+complexity sensitivity study, not as a replacement for the completed paper
+result.
+
+## Cyclic-Large Result
+
+The completed cyclic-large run is stored in:
+
+```text
+results/supply_chain_sabotage_cyclic_large_30/
+```
+
+It uses `30` paired runs, `180` steps, `25`-step shared control cadence,
+`24` Monte Carlo samples, equal Codex/non-Codex run counts, and
+`--network-topology cyclic_large`.
+
+Numeric-only ranking, lower is better:
+
+| Policy | Impact score | 95% CI | Mean service | Mean unmet demand | Mean budget |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `monte_carlo` | 15.976 | [15.563, 16.389] | 0.767 | 19,976.0 | 0.448 |
+| `codex_monte_carlo_admin` | 16.227 | [15.815, 16.640] | 0.763 | 20,301.6 | 0.494 |
+| `codex_monte_carlo` | 16.412 | [16.005, 16.818] | 0.760 | 20,581.2 | 0.437 |
+| `codex_monte_carlo_judge` | 16.451 | [16.021, 16.881] | 0.760 | 20,564.0 | 0.533 |
+| `codex_steady` | 17.643 | [17.086, 18.200] | 0.744 | 21,958.4 | 0.780 |
+| `rule_based` | 18.573 | [18.163, 18.984] | 0.724 | 23,678.0 | 0.241 |
+| `baseline` | 21.738 | [21.328, 22.148] | 0.671 | 28,181.8 | 0.000 |
+| `codex_guardian` | 21.738 | [21.328, 22.148] | 0.671 | 28,181.8 | 0.000 |
+
+Numeric interpretation: the larger cyclic graph reinforces the boundary
+result. Plain Monte Carlo remains the strongest fully numeric controller.
+`codex_monte_carlo_admin` is close but statistically worse than Monte Carlo:
+paired delta `+0.251`, 95% CI `[0.191, 0.311]`, win rate `1/30`.
+The Codex-Monte-Carlo variants are still useful relative to baseline and
+rule-based control, but they do not justify claiming that agent guidance beats
+model-based search on a simulator-aligned numeric objective. `codex_guardian`
+made `0` calls in this run and should not be interpreted as an active
+controller result.
+
+Qualitative sociotechnical ranking, lower is better:
+
+| Policy | Score | 95% CI | Physical | Human | Service | Trust | Rumor | Budget |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `q_structured_human_state_monte_carlo` | 78.251 | [77.840, 78.661] | 69.998 | 3.668 | 0.292 | 0.145 | 0.828 | 0.716 |
+| `q_codex_monte_carlo_qualitative_admin` | 79.086 | [78.703, 79.469] | 70.619 | 3.763 | 0.304 | 0.151 | 0.905 | 0.736 |
+| `q_keyword_monte_carlo` | 83.980 | [83.634, 84.327] | 75.094 | 3.949 | 0.278 | 0.065 | 0.924 | 0.746 |
+| `q_monte_carlo_logistics` | 84.684 | [84.356, 85.011] | 75.790 | 3.953 | 0.269 | 0.065 | 0.924 | 0.448 |
+| `q_codex_qualitative` | 86.989 | [86.464, 87.513] | 78.227 | 3.894 | 0.237 | 0.085 | 0.925 | 0.321 |
+| `q_baseline` | 88.108 | [87.808, 88.408] | 79.277 | 3.925 | 0.232 | 0.057 | 0.933 | 0.000 |
+
+Qualitative interpretation: the cyclic-large result strongly reinforces the
+positive Codex-guidance claim for sociotechnical control. The best deployable
+non-Codex policy is `q_keyword_monte_carlo`; the Codex-Monte-Carlo qualitative
+administrator beats it by paired delta `-4.895`, 95% CI
+`[-5.166, -4.623]`, win rate `30/30`. The stronger
+`q_structured_human_state_monte_carlo` reference still ranks first, beating
+Codex-admin by `0.835`, 95% CI `[0.443, 1.227]`, so the honest claim is not
+that Codex beats a structured human-state oracle. The claim is that Codex
+guidance adds clear value over deployable non-Codex methods when qualitative
+reports must be interpreted into bounded Monte Carlo search priorities.
+
+Decision reliability supports the qualitative interpretation:
+
+- `q_codex_monte_carlo_qualitative_admin`: `240/240` valid Codex decisions.
+- `q_codex_qualitative`: `239/240` valid Codex decisions, but worse score.
+- Numeric `codex_monte_carlo_admin`: `239/240` valid Codex decisions and
+  selected guided candidates `179` times, but still did not beat plain Monte
+  Carlo.
+
+Manuscript conclusion from this result: Codex should be framed as a semantic
+administrator over structured search, not as a universal replacement for
+Monte Carlo. When the objective is fully numeric and simulator-aligned,
+Monte Carlo wins. When the controller must convert qualitative, noisy,
+human-organizational reports into search priorities, Codex-guided Monte Carlo
+is the strongest deployable controller in this supply-chain scenario.
 
 ## Disruption Model
 
@@ -191,6 +294,19 @@ Combined numeric plus qualitative command:
 
 ```bash
 .venv/bin/python supply_chain_sabotage/run_experiment.py --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 0 --output-dir results/supply_chain_sabotage_combined_final
+```
+
+Cyclic-large numeric plus qualitative command:
+
+```bash
+.venv/bin/python supply_chain_sabotage/run_experiment.py --network-topology cyclic_large --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 20 --codex-timeout 45 --output-dir results/supply_chain_sabotage_cyclic_large_30
+```
+
+View cyclic-large summaries:
+
+```bash
+.venv/bin/python supply_chain_sabotage/show_results.py results/supply_chain_sabotage_cyclic_large_30/numeric_only/summary.json
+.venv/bin/python supply_chain_sabotage/show_results.py results/supply_chain_sabotage_cyclic_large_30/qualitative_resilience/summary.json
 ```
 
 Codex policies are included by default. Use `--no-codex` only for a

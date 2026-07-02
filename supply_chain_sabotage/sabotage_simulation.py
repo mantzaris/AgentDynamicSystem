@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 @dataclass(frozen=True)
 class SupplyChainConfig:
     steps: int = 180
+    network_topology: str = "default"
     attack_probability: float = 0.78
     attack_burst_probability: float = 0.28
     failure_probability: float = 0.34
@@ -113,12 +114,18 @@ class RunResult:
 
 
 class SupplyChainNetwork:
-    def __init__(self) -> None:
+    def __init__(self, topology: str = "default") -> None:
         self.nodes: Dict[str, Node] = {}
         self.edges: List[Edge] = []
         self._incoming: Dict[str, List[Edge]] = {}
         self._outgoing: Dict[str, List[Edge]] = {}
-        self._build_default()
+        self.topology = topology
+        if topology == "default":
+            self._build_default()
+        elif topology == "cyclic_large":
+            self._build_cyclic_large()
+        else:
+            raise ValueError(f"unknown supply-chain topology: {topology}")
 
     def copy(self) -> "SupplyChainNetwork":
         return copy.deepcopy(self)
@@ -168,10 +175,16 @@ class SupplyChainNetwork:
         )
 
     def _add_edge(self, source: str, target: str, capacity: float) -> None:
+        if source not in self.nodes or target not in self.nodes:
+            raise KeyError((source, target))
         edge = Edge(source=source, target=target, capacity=capacity)
         self.edges.append(edge)
         self._outgoing.setdefault(source, []).append(edge)
         self._incoming.setdefault(target, []).append(edge)
+
+    def _add_bidirectional_edge(self, first: str, second: str, capacity: float, reverse_scale: float = 0.82) -> None:
+        self._add_edge(first, second, capacity)
+        self._add_edge(second, first, capacity * reverse_scale)
 
     def _build_default(self) -> None:
         suppliers = [
@@ -283,6 +296,216 @@ class SupplyChainNetwork:
             + transfer_edges
         ):
             self._add_edge(source, target, capacity)
+
+    def _build_cyclic_large(self) -> None:
+        suppliers = [
+            ("S1 rare earths", 96.0, 34.0, 230.0, (0.0, 4.2)),
+            ("S2 battery chem", 92.0, 32.0, 220.0, (0.0, 3.1)),
+            ("S3 semiconductors", 84.0, 29.0, 205.0, (0.0, 2.0)),
+            ("S4 metalworks", 98.0, 35.0, 235.0, (0.0, 0.9)),
+            ("S5 packaging", 78.0, 27.0, 190.0, (0.0, -0.2)),
+            ("S6 fuel depot", 76.0, 26.0, 185.0, (0.0, -1.3)),
+            ("S7 medical inputs", 72.0, 25.0, 180.0, (0.0, -2.4)),
+            ("S8 refrigerated inputs", 70.0, 24.0, 175.0, (0.0, -3.5)),
+            ("S9 regional backup", 68.0, 22.0, 165.0, (0.0, -4.6)),
+        ]
+        factories = [
+            ("F1 north assembly", 55.0, 34.0, 180.0, (1.5, 3.9)),
+            ("F2 electronics", 52.0, 31.0, 170.0, (1.6, 2.6)),
+            ("F3 vehicle kits", 58.0, 36.0, 190.0, (1.7, 1.2)),
+            ("F4 emergency packs", 50.0, 30.0, 165.0, (1.5, -0.2)),
+            ("F5 medical kits", 46.0, 28.0, 160.0, (1.6, -1.7)),
+            ("F6 cold-chain prep", 44.0, 27.0, 155.0, (1.5, -3.2)),
+        ]
+        warehouses = [
+            ("W1 north hub", 86.0, 0.0, 260.0, (3.1, 4.1)),
+            ("W2 metro hub", 88.0, 0.0, 270.0, (3.3, 3.0)),
+            ("W3 central hub", 92.0, 0.0, 285.0, (3.4, 1.9)),
+            ("W4 south hub", 82.0, 0.0, 255.0, (3.3, 0.8)),
+            ("W5 coastal hub", 78.0, 0.0, 245.0, (3.2, -0.3)),
+            ("W6 reserve depot", 96.0, 0.0, 300.0, (2.8, 1.0)),
+            ("W7 medical reserve", 70.0, 0.0, 220.0, (3.0, -1.5)),
+            ("W8 cold-chain hub", 66.0, 0.0, 210.0, (3.1, -2.7)),
+            ("W9 inland crossdock", 76.0, 0.0, 240.0, (2.9, 2.5)),
+            ("W10 port crossdock", 72.0, 0.0, 230.0, (3.1, -4.0)),
+        ]
+        retailers = [
+            ("R1 trauma hospital", 34.0, 0.0, 125.0, 38.0, (5.0, 4.2)),
+            ("R2 airfield", 36.0, 0.0, 130.0, 40.0, (5.3, 3.5)),
+            ("R3 command post", 36.0, 0.0, 135.0, 43.0, (5.4, 2.7)),
+            ("R4 city district", 38.0, 0.0, 145.0, 47.0, (5.3, 1.8)),
+            ("R5 logistics yard", 34.0, 0.0, 130.0, 42.0, (5.1, 0.8)),
+            ("R6 port terminal", 34.0, 0.0, 128.0, 40.0, (5.2, -0.2)),
+            ("R7 shelter network", 32.0, 0.0, 125.0, 38.0, (4.9, -1.2)),
+            ("R8 island outpost", 28.0, 0.0, 110.0, 33.0, (5.5, -2.1)),
+            ("R9 medical shelters", 30.0, 0.0, 120.0, 36.0, (5.2, -3.0)),
+            ("R10 cold clinics", 28.0, 0.0, 112.0, 34.0, (5.4, -3.9)),
+            ("R11 inland convoy", 32.0, 0.0, 118.0, 37.0, (4.8, 2.0)),
+            ("R12 coastal staging", 30.0, 0.0, 116.0, 35.0, (5.0, -4.7)),
+        ]
+
+        for name, inventory, capacity, max_inventory, position in suppliers:
+            self._add_node(name, "supplier", inventory, capacity, max_inventory, 0.0, position)
+        for name, inventory, capacity, max_inventory, position in factories:
+            self._add_node(name, "factory", inventory, capacity, max_inventory, 0.0, position)
+        for name, inventory, capacity, max_inventory, position in warehouses:
+            self._add_node(name, "warehouse", inventory, capacity, max_inventory, 0.0, position)
+        for name, inventory, capacity, max_inventory, demand, position in retailers:
+            self._add_node(name, "retailer", inventory, capacity, max_inventory, demand, position)
+
+        supplier_factory_edges = [
+            ("S1 rare earths", "F1 north assembly", 25.0),
+            ("S1 rare earths", "F2 electronics", 20.0),
+            ("S1 rare earths", "F3 vehicle kits", 13.0),
+            ("S2 battery chem", "F2 electronics", 28.0),
+            ("S2 battery chem", "F3 vehicle kits", 20.0),
+            ("S2 battery chem", "F6 cold-chain prep", 10.0),
+            ("S3 semiconductors", "F1 north assembly", 17.0),
+            ("S3 semiconductors", "F2 electronics", 30.0),
+            ("S3 semiconductors", "F5 medical kits", 13.0),
+            ("S4 metalworks", "F1 north assembly", 24.0),
+            ("S4 metalworks", "F3 vehicle kits", 30.0),
+            ("S4 metalworks", "F4 emergency packs", 12.0),
+            ("S5 packaging", "F3 vehicle kits", 18.0),
+            ("S5 packaging", "F4 emergency packs", 25.0),
+            ("S5 packaging", "F5 medical kits", 16.0),
+            ("S6 fuel depot", "F3 vehicle kits", 21.0),
+            ("S6 fuel depot", "F4 emergency packs", 20.0),
+            ("S6 fuel depot", "F6 cold-chain prep", 14.0),
+            ("S7 medical inputs", "F4 emergency packs", 14.0),
+            ("S7 medical inputs", "F5 medical kits", 27.0),
+            ("S8 refrigerated inputs", "F5 medical kits", 16.0),
+            ("S8 refrigerated inputs", "F6 cold-chain prep", 26.0),
+            ("S9 regional backup", "F1 north assembly", 12.0),
+            ("S9 regional backup", "F4 emergency packs", 13.0),
+            ("S9 regional backup", "F6 cold-chain prep", 15.0),
+        ]
+        factory_transfer_edges = [
+            ("F1 north assembly", "F2 electronics", 8.0),
+            ("F2 electronics", "F1 north assembly", 7.0),
+            ("F2 electronics", "F3 vehicle kits", 9.0),
+            ("F3 vehicle kits", "F2 electronics", 7.0),
+            ("F4 emergency packs", "F5 medical kits", 8.0),
+            ("F5 medical kits", "F4 emergency packs", 7.0),
+            ("F5 medical kits", "F6 cold-chain prep", 8.0),
+            ("F6 cold-chain prep", "F5 medical kits", 7.0),
+        ]
+        factory_warehouse_edges = [
+            ("F1 north assembly", "W1 north hub", 30.0),
+            ("F1 north assembly", "W2 metro hub", 25.0),
+            ("F1 north assembly", "W9 inland crossdock", 16.0),
+            ("F2 electronics", "W2 metro hub", 28.0),
+            ("F2 electronics", "W3 central hub", 25.0),
+            ("F2 electronics", "W6 reserve depot", 15.0),
+            ("F3 vehicle kits", "W3 central hub", 30.0),
+            ("F3 vehicle kits", "W4 south hub", 25.0),
+            ("F3 vehicle kits", "W6 reserve depot", 16.0),
+            ("F3 vehicle kits", "W9 inland crossdock", 13.0),
+            ("F4 emergency packs", "W4 south hub", 28.0),
+            ("F4 emergency packs", "W5 coastal hub", 24.0),
+            ("F4 emergency packs", "W6 reserve depot", 13.0),
+            ("F5 medical kits", "W7 medical reserve", 26.0),
+            ("F5 medical kits", "W5 coastal hub", 18.0),
+            ("F5 medical kits", "W8 cold-chain hub", 14.0),
+            ("F6 cold-chain prep", "W8 cold-chain hub", 26.0),
+            ("F6 cold-chain prep", "W10 port crossdock", 20.0),
+            ("F6 cold-chain prep", "W5 coastal hub", 14.0),
+        ]
+        warehouse_retail_edges = [
+            ("W1 north hub", "R1 trauma hospital", 25.0),
+            ("W1 north hub", "R2 airfield", 19.0),
+            ("W1 north hub", "R11 inland convoy", 13.0),
+            ("W2 metro hub", "R1 trauma hospital", 17.0),
+            ("W2 metro hub", "R2 airfield", 27.0),
+            ("W2 metro hub", "R3 command post", 25.0),
+            ("W3 central hub", "R3 command post", 20.0),
+            ("W3 central hub", "R4 city district", 30.0),
+            ("W3 central hub", "R5 logistics yard", 20.0),
+            ("W3 central hub", "R11 inland convoy", 14.0),
+            ("W4 south hub", "R4 city district", 18.0),
+            ("W4 south hub", "R5 logistics yard", 27.0),
+            ("W4 south hub", "R6 port terminal", 21.0),
+            ("W5 coastal hub", "R6 port terminal", 25.0),
+            ("W5 coastal hub", "R7 shelter network", 21.0),
+            ("W5 coastal hub", "R8 island outpost", 18.0),
+            ("W6 reserve depot", "R2 airfield", 13.0),
+            ("W6 reserve depot", "R4 city district", 15.0),
+            ("W6 reserve depot", "R7 shelter network", 17.0),
+            ("W7 medical reserve", "R1 trauma hospital", 18.0),
+            ("W7 medical reserve", "R9 medical shelters", 25.0),
+            ("W7 medical reserve", "R10 cold clinics", 16.0),
+            ("W8 cold-chain hub", "R9 medical shelters", 18.0),
+            ("W8 cold-chain hub", "R10 cold clinics", 25.0),
+            ("W8 cold-chain hub", "R12 coastal staging", 14.0),
+            ("W9 inland crossdock", "R3 command post", 16.0),
+            ("W9 inland crossdock", "R11 inland convoy", 23.0),
+            ("W9 inland crossdock", "R4 city district", 12.0),
+            ("W10 port crossdock", "R6 port terminal", 18.0),
+            ("W10 port crossdock", "R8 island outpost", 16.0),
+            ("W10 port crossdock", "R12 coastal staging", 23.0),
+        ]
+        for source, target, capacity in (
+            supplier_factory_edges
+            + factory_transfer_edges
+            + factory_warehouse_edges
+            + warehouse_retail_edges
+        ):
+            self._add_edge(source, target, capacity)
+
+        warehouse_cycle = [
+            ("W1 north hub", "W2 metro hub", 17.0),
+            ("W2 metro hub", "W3 central hub", 20.0),
+            ("W3 central hub", "W4 south hub", 20.0),
+            ("W4 south hub", "W5 coastal hub", 18.0),
+            ("W5 coastal hub", "W10 port crossdock", 16.0),
+            ("W10 port crossdock", "W8 cold-chain hub", 15.0),
+            ("W8 cold-chain hub", "W7 medical reserve", 15.0),
+            ("W7 medical reserve", "W6 reserve depot", 14.0),
+            ("W6 reserve depot", "W9 inland crossdock", 16.0),
+            ("W9 inland crossdock", "W1 north hub", 15.0),
+        ]
+        for first, second, capacity in warehouse_cycle:
+            self._add_bidirectional_edge(first, second, capacity)
+        for first, second, capacity in [
+            ("W2 metro hub", "W6 reserve depot", 14.0),
+            ("W3 central hub", "W7 medical reserve", 13.0),
+            ("W4 south hub", "W8 cold-chain hub", 12.0),
+            ("W5 coastal hub", "W9 inland crossdock", 11.0),
+            ("W1 north hub", "W6 reserve depot", 12.0),
+            ("W10 port crossdock", "W5 coastal hub", 13.0),
+        ]:
+            self._add_bidirectional_edge(first, second, capacity, reverse_scale=0.78)
+
+        retailer_mutual_aid_edges = [
+            ("R1 trauma hospital", "R9 medical shelters", 7.0),
+            ("R9 medical shelters", "R1 trauma hospital", 6.0),
+            ("R2 airfield", "R3 command post", 8.0),
+            ("R3 command post", "R2 airfield", 7.0),
+            ("R4 city district", "R5 logistics yard", 8.0),
+            ("R5 logistics yard", "R4 city district", 7.0),
+            ("R6 port terminal", "R12 coastal staging", 7.0),
+            ("R12 coastal staging", "R6 port terminal", 6.0),
+            ("R7 shelter network", "R8 island outpost", 6.0),
+            ("R8 island outpost", "R7 shelter network", 5.0),
+            ("R10 cold clinics", "R9 medical shelters", 6.0),
+            ("R11 inland convoy", "R4 city district", 6.0),
+        ]
+        for source, target, capacity in retailer_mutual_aid_edges:
+            self._add_edge(source, target, capacity)
+
+
+def _network_context(network: SupplyChainNetwork) -> Dict[str, Any]:
+    return {
+        "topology": getattr(network, "topology", "default"),
+        "node_count": len(network.nodes),
+        "edge_count": len(network.edges),
+        "role_counts": {
+            "suppliers": len(network.suppliers()),
+            "factories": len(network.factories()),
+            "warehouses": len(network.warehouses()),
+            "retailers": len(network.retailers()),
+        },
+    }
 
 
 class Policy:
@@ -571,6 +794,7 @@ class CodexSupplyChainPolicy(RuleBasedPolicy):
                 "Node inventories and health values are delayed, noisy, and quantized reports. "
                 "They are the same controller-visible telemetry given to all policies, not hidden ground truth."
             ),
+            "network_context": _network_context(network),
             "action_budget": config.action_budget,
             "control_update_interval": config.control_update_interval,
             "budget_weights": {
@@ -1413,7 +1637,7 @@ def run_simulation(
     rng = np.random.default_rng(seed)
     policy_rng = np.random.default_rng(seed + 317_503)
     observation_rng = np.random.default_rng(seed + 884_911)
-    network = SupplyChainNetwork()
+    network = SupplyChainNetwork(config.network_topology)
     observed_network = _observed_network(network, config, observation_rng)
     time = np.arange(config.steps + 1)
     unmet = np.zeros(config.steps + 1)
@@ -1616,7 +1840,7 @@ def save_outputs(
         print(f"Saving outputs for {policy_name}...", flush=True)
         written.extend(_save_policy_plot(policy_name, runs, output_dir))
     written.extend(_save_dashboard(results, output_dir, config=config))
-    written.extend(_save_network_map(results, output_dir))
+    written.extend(_save_network_map(results, output_dir, config=config))
     summary = summarize(results, config=config)
     if config is not None:
         summary["config"] = asdict(config)
@@ -2022,6 +2246,7 @@ def _codex_candidate_prompt(
             "Node inventories and health values are delayed, noisy, and quantized reports. "
             "They are the same controller-visible telemetry given to all policies, not hidden ground truth."
         ),
+        "network_context": _network_context(network),
         "action_budget": config.action_budget,
         "control_update_interval": config.control_update_interval,
         "budget_weights": {
@@ -2199,6 +2424,7 @@ def _codex_judge_prompt(
             "failure_probability": config.failure_probability,
             "demand_surge_probability": config.demand_surge_probability,
         },
+        "network_context": _network_context(network),
         "action_budget": config.action_budget,
         "control_update_interval": config.control_update_interval,
         "state": history[-1] if history else {},
@@ -2240,6 +2466,7 @@ def _codex_admin_prompt(
             "failure_probability": config.failure_probability,
             "demand_surge_probability": config.demand_surge_probability,
         },
+        "network_context": _network_context(network),
         "action_budget": config.action_budget,
         "control_update_interval": config.control_update_interval,
         "state": history[-1] if history else {},
@@ -3204,8 +3431,13 @@ def _save_dashboard(
     return _save(fig, output_dir / "dashboard")
 
 
-def _save_network_map(results: Dict[str, List[RunResult]], output_dir: Path) -> List[Path]:
-    network = SupplyChainNetwork()
+def _save_network_map(
+    results: Dict[str, List[RunResult]],
+    output_dir: Path,
+    config: Optional[SupplyChainConfig] = None,
+) -> List[Path]:
+    topology = config.network_topology if config is not None else "default"
+    network = SupplyChainNetwork(topology)
     fig, axis = plt.subplots(figsize=(13.0, 8.0), constrained_layout=True)
     kind_colors = {
         "supplier": "#4F5D75",
@@ -3234,7 +3466,8 @@ def _save_network_map(results: Dict[str, List[RunResult]], output_dir: Path) -> 
         )
         axis.text(node.position[0], node.position[1] - 0.16, node.name, ha="center", va="top", fontsize=7)
     axis.set_title(
-        f"Directed supply-chain network ({len(network.nodes)} nodes, {len(network.edges)} shipment routes)"
+        f"Directed supply-chain network: {topology} "
+        f"({len(network.nodes)} nodes, {len(network.edges)} shipment routes)"
     )
     axis.set_xticks([])
     axis.set_yticks([])

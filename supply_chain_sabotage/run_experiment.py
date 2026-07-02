@@ -57,6 +57,16 @@ def parse_args() -> argparse.Namespace:
         help="Normalized per-step intervention budget shared by all policies.",
     )
     parser.add_argument(
+        "--network-topology",
+        choices=["default", "cyclic_large"],
+        default="default",
+        help=(
+            "Supply-chain topology. 'default' preserves the paper network; "
+            "'cyclic_large' uses a larger redundant graph with warehouse cycles, "
+            "factory rework loops, and retailer mutual-aid routes."
+        ),
+    )
+    parser.add_argument(
         "--action-budget-score-weight",
         type=float,
         default=0.35,
@@ -195,6 +205,7 @@ def main() -> None:
         control_update_interval = 1
     config = SupplyChainConfig(
         steps=args.steps,
+        network_topology=args.network_topology,
         action_budget=args.action_budget,
         action_budget_score_weight=args.action_budget_score_weight,
         observation_update_interval=args.observation_update_interval,
@@ -371,6 +382,7 @@ def _print_numeric_footer(
     if args.include_codex:
         print(f"Runs per Codex policy: {codex_runs}")
     print(f"Steps per run: {args.steps}")
+    print(f"Network topology: {args.network_topology}")
     print(f"Action budget: {args.action_budget}")
     print(f"Action budget score weight: {args.action_budget_score_weight}")
     print(f"Control update interval: {control_update_interval}")
@@ -408,6 +420,7 @@ def _print_qualitative_footer(
     if args.include_codex:
         print(f"Runs per Codex policy: {codex_runs}")
     print(f"Steps per run: {args.steps}")
+    print(f"Network topology: {args.network_topology}")
     print(f"Control update interval: {control_update_interval}")
     print(f"Monte Carlo samples: {args.monte_carlo_samples}")
     print_qualitative_summary(summary)

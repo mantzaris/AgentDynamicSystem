@@ -76,6 +76,12 @@ Run the defense urban-response benchmark:
 .venv/bin/python defense_urban_response/run_experiment.py --study both --runs 10 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --progress-interval 20 --codex-timeout 45 --output-dir results/urban_response_final
 ```
 
+Run the larger cyclic supply-chain sabotage benchmark:
+
+```bash
+.venv/bin/python supply_chain_sabotage/run_experiment.py --network-topology cyclic_large --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 20 --codex-timeout 45 --output-dir results/supply_chain_sabotage_cyclic_large_30
+```
+
 Run a single additional system:
 
 ```bash
@@ -429,9 +435,12 @@ The directed-graph sabotage case lives in:
 supply_chain_sabotage/
 ```
 
-It is separate from the generic aggregate `supply_chain` benchmark. The graph
-contains 6 suppliers, 4 factories, 6 warehouses, 8 retailer/mission demand
-points, and 52 directed shipment routes.
+It is separate from the generic aggregate `supply_chain` benchmark. The default
+graph contains 6 suppliers, 4 factories, 6 warehouses, 8 retailer/mission demand
+points, and 52 directed shipment routes. A larger cyclic topology is available
+with `--network-topology cyclic_large`; it expands the graph to 37 nodes and
+127 directed edges with factory rework loops, warehouse cycles, cross-cycle
+links, and retailer mutual-aid routes.
 
 The current version is a high-pressure stress test. It uses frequent attacks,
 burst attacks, random failures, stochastic demand surges, slower recovery, and
@@ -446,26 +455,47 @@ Controller set:
 - `monte_carlo`
 - `codex_steady`
 - `codex_guardian`
+- `codex_monte_carlo`
+- `codex_monte_carlo_admin`
+- `codex_monte_carlo_judge`
 
 Metric:
 
 - lower-is-better sabotage impact score, combining unmet demand, economic
-  loss, service-level failure, and low terminal inventory.
+  loss, service-level failure, low terminal inventory, and action-budget use.
 
-Latest regenerated stress-test ranking:
+The paper-facing result in `results/supply_chain_sabotage_paper/` has two
+branches: a numeric-only study where plain Monte Carlo wins, and a
+sociotechnical qualitative study where the Codex-Monte-Carlo qualitative admin
+hybrid is the best deployable controller. The cyclic-large topology is a new
+complexity sensitivity study, not a replacement for that completed result.
 
-| Policy | Impact score | Mean service level | Mean unmet demand |
-| --- | ---: | ---: | ---: |
-| `codex_guardian` | 12.467 | 0.735 | 14,880.8 |
-| `rule_based` | 13.037 | 0.719 | 15,662.5 |
-| `monte_carlo` | 13.821 | 0.701 | 16,706.8 |
-| `codex_steady` | 15.891 | 0.650 | 19,629.1 |
-| `baseline` | 19.061 | 0.568 | 24,058.6 |
+The completed cyclic-large result is stored in
+`results/supply_chain_sabotage_cyclic_large_30/`. It preserves the numeric
+boundary result and strengthens the qualitative Codex-guidance result:
+
+- numeric-only: `monte_carlo` ranks first at `15.976`; the closest Codex hybrid
+  is `codex_monte_carlo_admin` at `16.227`, which is significantly worse than
+  Monte Carlo by paired delta `+0.251` with 95% CI `[0.191, 0.311]`;
+- qualitative sociotechnical: `q_codex_monte_carlo_qualitative_admin` ranks as
+  the best deployable controller at `79.086`, beating the best deployable
+  non-Codex policy, `q_keyword_monte_carlo` at `83.980`, by paired delta
+  `-4.895` with 95% CI `[-5.166, -4.623]`;
+- `q_structured_human_state_monte_carlo` remains the best overall reference at
+  `78.251`, so this should be described as Codex improving deployable
+  qualitative interpretation over conventional baselines, not as Codex beating
+  a structured human-state reference.
 
 Primary run command:
 
 ```bash
-.venv/bin/python supply_chain_sabotage/run_experiment.py --runs 10 --codex-runs 1 --steps 180 --progress-interval 30
+.venv/bin/python supply_chain_sabotage/run_experiment.py --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 0 --output-dir results/supply_chain_sabotage_combined_final
+```
+
+Cyclic-large run command:
+
+```bash
+.venv/bin/python supply_chain_sabotage/run_experiment.py --network-topology cyclic_large --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --hybrid-codex-candidates 3 --admin-max-sample-multiplier 2.0 --judge-shortlist-size 8 --judge-override-tolerance 0.12 --progress-interval 20 --codex-timeout 45 --output-dir results/supply_chain_sabotage_cyclic_large_30
 ```
 
 ## Simulation Step Order
