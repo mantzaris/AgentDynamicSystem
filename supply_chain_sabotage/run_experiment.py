@@ -182,6 +182,23 @@ def parse_args() -> argparse.Namespace:
         help="Print progress every N steps. Use 0 to disable.",
     )
     parser.add_argument(
+        "--qualitative-report-mode",
+        choices=["full", "removed", "shuffled", "explicit"],
+        default="full",
+        help=(
+            "Qualitative report ablation mode. 'full' uses natural reports; "
+            "'removed' gives no reports; 'shuffled' mismatches report content "
+            "to latent human/organizational state; 'explicit' gives direct "
+            "semantic labels."
+        ),
+    )
+    parser.add_argument(
+        "--qualitative-report-noise",
+        type=float,
+        default=0.15,
+        help="Probability of adding a noisy qualitative report.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=REPO_ROOT / "results" / "supply_chain_sabotage",
@@ -256,7 +273,11 @@ def main() -> None:
         qualitative_output_dir = (
             output_dir / "qualitative_resilience" if args.study == "both" else output_dir
         )
-        qualitative_config = QualitativeConfig(base=config)
+        qualitative_config = QualitativeConfig(
+            base=config,
+            report_mode=args.qualitative_report_mode,
+            report_noise_probability=args.qualitative_report_noise,
+        )
         qualitative_policies = _qualitative_policies(args)
         qualitative_runs_by_policy = {
             policy.name: args.runs for policy in qualitative_policies

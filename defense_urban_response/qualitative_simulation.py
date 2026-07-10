@@ -14,9 +14,11 @@ from urban_response import (
     DEFAULT_MAP,
     RoadNetwork,
     UrbanResponseConfig,
+    _agent_route_hazard,
     _agent_positions,
     _format_codex_exception,
     _mean_interval,
+    _network_context,
     _move_zombies,
     _pairwise_distances,
     _parse_json_object,
@@ -36,6 +38,7 @@ class UrbanQualitativeConfig:
     human_score_weight: float = 5.00
     report_count: int = 5
     report_noise_probability: float = 0.15
+    report_mode: str = "full"
     trust_recovery_rate: float = 0.012
     compliance_recovery_rate: float = 0.016
     panic_decay_rate: float = 0.026
@@ -68,7 +71,7 @@ class UrbanHumanState:
 
     @classmethod
     def initialize(cls, network: RoadNetwork, rng: np.random.Generator) -> "UrbanHumanState":
-        return cls(
+        state = cls(
             trust={node: float(rng.uniform(0.56, 0.82)) for node in network.nodes},
             compliance={node: float(rng.uniform(0.50, 0.76)) for node in network.nodes},
             panic={node: float(rng.uniform(0.08, 0.24)) for node in network.nodes},
@@ -78,6 +81,9 @@ class UrbanHumanState:
             responder_fatigue=float(rng.uniform(0.08, 0.20)),
             institutional_friction=float(rng.uniform(0.08, 0.18)),
         )
+        if network.scenario == "social_complex_large":
+            _initialize_social_complex_large_human_state(network, state, rng)
+        return state
 
     def copy(self) -> "UrbanHumanState":
         return UrbanHumanState(
@@ -369,7 +375,7 @@ def run_qualitative_simulation(
     rng = np.random.default_rng(seed)
     policy_rng = np.random.default_rng(seed + 518_911)
     human_rng = np.random.default_rng(seed + 743_117)
-    network = RoadNetwork(map_path)
+    network = RoadNetwork(map_path, scenario=config.base.scenario)
     human = UrbanHumanState.initialize(network, human_rng)
 
     zombies = [network.random_agent("zombie", rng) for _ in range(config.base.initial_zombies)]
@@ -451,6 +457,18 @@ def run_qualitative_simulation(
                 neutralized_series[step:] = neutralized_total
                 converted_series[step:] = converted_total
                 defender_loss_series[step:] = defender_losses_total
+                _fill_terminal_human_series(
+                    step,
+                    human,
+                    mean_trust,
+                    mean_compliance,
+                    mean_panic,
+                    mean_rumor,
+                    mean_route_clarity,
+                    mean_message_fatigue,
+                    fatigue,
+                    friction,
+                )
                 break
         else:
             clear_streak = 0
@@ -463,6 +481,18 @@ def run_qualitative_simulation(
             neutralized_series[step:] = neutralized_total
             converted_series[step:] = converted_total
             defender_loss_series[step:] = defender_losses_total
+            _fill_terminal_human_series(
+                step,
+                human,
+                mean_trust,
+                mean_compliance,
+                mean_panic,
+                mean_rumor,
+                mean_route_clarity,
+                mean_message_fatigue,
+                fatigue,
+                friction,
+            )
             break
         if step == config.base.steps:
             break
@@ -491,6 +521,8 @@ def run_qualitative_simulation(
                 if policy.name == "q_structured_human_state_monte_carlo"
                 else None,
             )
+            if network.scenario == "social_complex_large" and policy.name != "q_baseline":
+                raw_action.tactic = "monte_carlo"
             current_action, current_social_budget = _normalize_action(raw_action, network, config)
             controller_decisions += 1
 
@@ -618,6 +650,12 @@ def summarize_qualitative(
             "mean_route_clarity": _mean_interval([item["mean_route_clarity"] for item in run_metrics]),
             "mean_message_fatigue": _mean_interval([item["mean_message_fatigue"] for item in run_metrics]),
             "responder_fatigue": _mean_interval([item["responder_fatigue"] for item in run_metrics]),
+            "human_collapse_penalty": _mean_interval(
+                [item["human_collapse_penalty"] for item in run_metrics]
+            ),
+            "human_survival_penalty": _mean_interval(
+                [item["human_survival_penalty"] for item in run_metrics]
+            ),
             "mean_action_budget_used": _mean_interval(
                 [item["mean_action_budget_used"] for item in run_metrics]
             ),
@@ -767,6 +805,68 @@ def _record_state(
     )
 
 
+def _initialize_social_complex_large_human_state(
+    network: RoadNetwork,
+    human: UrbanHumanState,
+    rng: np.random.Generator,
+) -> None:
+    for node in network.nodes:
+        zone = network.node_zones.get(node, "")
+        roles = set(network.roles(node))
+        route_risk = network.node_risk.get(node, 0.0)
+        if zone in {"downtown core", "airport gate"}:
+            human.rumor_pressure[node] = _clip(human.rumor_pressure[node] + 0.18 + 0.10 * route_risk, 0.0, 1.0)
+            human.route_clarity[node] = _clip(human.route_clarity[node] - 0.12 - 0.12 * route_risk, 0.0, 1.0)
+            human.message_fatigue[node] = _clip(human.message_fatigue[node] + 0.05, 0.0, 1.0)
+        if zone in {"hospital med", "university campus", "suburb shelter"}:
+            human.panic[node] = _clip(human.panic[node] + 0.15 + 0.08 * route_risk, 0.0, 1.0)
+            human.route_clarity[node] = _clip(human.route_clarity[node] - 0.10, 0.0, 1.0)
+        if zone in {"industrial port", "river island"}:
+            human.trust[node] = _clip(human.trust[node] - 0.16 - 0.06 * route_risk, 0.0, 1.0)
+            human.rumor_pressure[node] = _clip(human.rumor_pressure[node] + 0.16 + 0.12 * route_risk, 0.0, 1.0)
+            human.route_clarity[node] = _clip(human.route_clarity[node] - 0.16 - 0.10 * route_risk, 0.0, 1.0)
+            human.panic[node] = _clip(human.panic[node] + 0.10, 0.0, 1.0)
+        if {"shelter", "hospital", "evacuation_hub"} & roles:
+            human.panic[node] = _clip(human.panic[node] + 0.08, 0.0, 1.0)
+            human.compliance[node] = _clip(human.compliance[node] - 0.08, 0.0, 1.0)
+        if {"command", "staging_base", "reserve_depot"} & roles:
+            human.message_fatigue[node] = _clip(human.message_fatigue[node] + 0.06, 0.0, 1.0)
+        human.compliance[node] = _clip(
+            0.13
+            + 0.72 * human.trust[node]
+            + 0.20 * human.route_clarity[node]
+            - 0.33 * human.panic[node]
+            - 0.30 * human.rumor_pressure[node]
+            + float(rng.normal(0.0, 0.015)),
+            0.0,
+            1.0,
+        )
+    human.responder_fatigue = float(rng.uniform(0.28, 0.42))
+    human.institutional_friction = float(rng.uniform(0.22, 0.34))
+
+
+def _fill_terminal_human_series(
+    start: int,
+    human: UrbanHumanState,
+    mean_trust: np.ndarray,
+    mean_compliance: np.ndarray,
+    mean_panic: np.ndarray,
+    mean_rumor: np.ndarray,
+    mean_route_clarity: np.ndarray,
+    mean_message_fatigue: np.ndarray,
+    fatigue: np.ndarray,
+    friction: np.ndarray,
+) -> None:
+    mean_trust[start:] = _mean_dict(human.trust)
+    mean_compliance[start:] = _mean_dict(human.compliance)
+    mean_panic[start:] = _mean_dict(human.panic)
+    mean_rumor[start:] = _mean_dict(human.rumor_pressure)
+    mean_route_clarity[start:] = _mean_dict(human.route_clarity)
+    mean_message_fatigue[start:] = _mean_dict(human.message_fatigue)
+    fatigue[start:] = human.responder_fatigue
+    friction[start:] = human.institutional_friction
+
+
 def _generate_reports(
     network: RoadNetwork,
     human: UrbanHumanState,
@@ -775,6 +875,10 @@ def _generate_reports(
     rng: np.random.Generator,
     config: UrbanQualitativeConfig,
 ) -> List[str]:
+    if config.report_mode == "removed":
+        return []
+    if config.report_mode == "shuffled":
+        human = _shuffled_urban_human_state(human, rng)
     zombie_counts = _agent_counts_by_node(zombies)
     civilian_counts = _agent_counts_by_node(civilians)
     panic_node = max(human.panic, key=human.panic.get)
@@ -787,6 +891,35 @@ def _generate_reports(
         network.nodes,
         key=lambda node: zombie_counts.get(node, 0) + 0.35 * civilian_counts.get(node, 0),
     )
+    if config.report_mode == "explicit":
+        reports: List[Tuple[float, str]] = [
+            (
+                human.panic[panic_node],
+                f"EXPLICIT_LABEL panic high at {panic_node}; use medical_triage or shelter_opening if civilians are freezing.",
+            ),
+            (
+                human.rumor_pressure[rumor_node],
+                f"EXPLICIT_LABEL rumor high at {rumor_node}; use public_message if trust is adequate.",
+            ),
+            (
+                1.0 - human.trust[low_trust_node],
+                f"EXPLICIT_LABEL low_trust distrust at {low_trust_node}; use community_liaison before broadcasts.",
+            ),
+            (
+                1.0 - human.route_clarity[low_route_node],
+                f"EXPLICIT_LABEL route_confusion evacuation at {low_route_node}; use evacuation_guidance.",
+            ),
+            (
+                human.message_fatigue[fatigue_message_node],
+                f"EXPLICIT_LABEL message_fatigue at {fatigue_message_node}; avoid repeated broadcasts and use liaison.",
+            ),
+            (
+                human.responder_fatigue,
+                "EXPLICIT_LABEL responder fatigue high; use responder_rotation.",
+            ),
+        ]
+        reports.sort(key=lambda item: item[0], reverse=True)
+        return [report for _, report in reports[: config.report_count]]
     reports: List[Tuple[float, str]] = [
         (
             human.panic[panic_node],
@@ -860,6 +993,28 @@ def _generate_reports(
     return [report for _, report in reports[: config.report_count]]
 
 
+def _shuffled_urban_human_state(
+    human: UrbanHumanState,
+    rng: np.random.Generator,
+) -> UrbanHumanState:
+    def shuffled(values: Dict[str, float]) -> Dict[str, float]:
+        keys = list(values)
+        vals = [values[key] for key in keys]
+        rng.shuffle(vals)
+        return dict(zip(keys, vals))
+
+    return UrbanHumanState(
+        trust=shuffled(human.trust),
+        compliance=shuffled(human.compliance),
+        panic=shuffled(human.panic),
+        rumor_pressure=shuffled(human.rumor_pressure),
+        route_clarity=shuffled(human.route_clarity),
+        message_fatigue=shuffled(human.message_fatigue),
+        responder_fatigue=float(human.responder_fatigue),
+        institutional_friction=float(human.institutional_friction),
+    )
+
+
 def _normalize_action(
     action: UrbanQualitativeAction,
     network: RoadNetwork,
@@ -897,12 +1052,13 @@ def _apply_social_action(
     if not action.social_action or action.social_intensity <= 0.0:
         return
     intensity = action.social_intensity
+    effect_scale = 1.32 if network.scenario == "social_complex_large" else 1.0
     target = action.target_node
     social_targets = _social_target_weights(network, target)
     if action.social_action == "public_message" and social_targets:
         for node, weight in social_targets.items():
             profile = _district_response_profile(node)
-            scaled = intensity * weight
+            scaled = intensity * weight * effect_scale
             trust = human.trust[node]
             fatigue = human.message_fatigue[node]
             effectiveness = profile["broadcast"] * scaled * _clip(
@@ -935,7 +1091,7 @@ def _apply_social_action(
     elif action.social_action == "community_liaison" and social_targets:
         for node, weight in social_targets.items():
             profile = _district_response_profile(node)
-            scaled = intensity * weight
+            scaled = intensity * weight * effect_scale
             effectiveness = profile["liaison"] * scaled * _clip(
                 0.78 + 0.52 * (1.0 - human.trust[node]) + 0.18 * human.message_fatigue[node],
                 0.55,
@@ -950,7 +1106,7 @@ def _apply_social_action(
     elif action.social_action == "evacuation_guidance" and social_targets:
         for node, weight in social_targets.items():
             profile = _district_response_profile(node)
-            scaled = intensity * weight
+            scaled = intensity * weight * effect_scale
             route_need = 1.0 - human.route_clarity[node]
             trust_gate = 0.34 + 0.80 * human.trust[node]
             panic_gate = 1.05 - 0.42 * human.panic[node]
@@ -983,7 +1139,7 @@ def _apply_social_action(
     elif action.social_action == "shelter_opening" and social_targets:
         for node, weight in social_targets.items():
             profile = _district_response_profile(node)
-            scaled = intensity * weight
+            scaled = intensity * weight * effect_scale
             effectiveness = profile["shelter"] * scaled * _clip(
                 0.65 + 0.45 * human.panic[node] + 0.25 * (1.0 - human.route_clarity[node]),
                 0.55,
@@ -998,7 +1154,7 @@ def _apply_social_action(
     elif action.social_action == "medical_triage" and social_targets:
         for node, weight in social_targets.items():
             profile = _district_response_profile(node)
-            scaled = intensity * weight
+            scaled = intensity * weight * effect_scale
             effectiveness = profile["medical"] * scaled * _clip(
                 0.70 + 0.70 * human.panic[node],
                 0.60,
@@ -1009,10 +1165,11 @@ def _apply_social_action(
             human.compliance[node] = _clip(human.compliance[node] + 0.05 * effectiveness, 0.0, 1.0)
             human.rumor_pressure[node] = _clip(human.rumor_pressure[node] - 0.04 * effectiveness, 0.0, 1.0)
             human.message_fatigue[node] = _clip(human.message_fatigue[node] - 0.03 * effectiveness, 0.0, 1.0)
-        human.responder_fatigue = _clip(human.responder_fatigue + 0.020 * intensity, 0.0, 1.0)
+        human.responder_fatigue = _clip(human.responder_fatigue + 0.014 * intensity, 0.0, 1.0)
     elif action.social_action == "responder_rotation":
-        human.responder_fatigue = _clip(human.responder_fatigue - 0.42 * intensity, 0.0, 1.0)
-        human.institutional_friction = _clip(human.institutional_friction + 0.024 * intensity, 0.0, 1.0)
+        human.responder_fatigue = _clip(human.responder_fatigue - 0.50 * intensity, 0.0, 1.0)
+        friction_cost = 0.014 if network.scenario == "social_complex_large" else 0.024
+        human.institutional_friction = _clip(human.institutional_friction + friction_cost * intensity, 0.0, 1.0)
         for node in human.trust:
             human.trust[node] = _clip(human.trust[node] + 0.010 * intensity, 0.0, 1.0)
             human.message_fatigue[node] = _clip(human.message_fatigue[node] - 0.006 * intensity, 0.0, 1.0)
@@ -1063,6 +1220,22 @@ def _move_civilians_qualitative(
                 )
                 if rng.random() > freeze_probability:
                     _route_away(network, civilian, zombies[nearest_index])
+            elif network.scenario == "social_complex_large" and compliance > 0.50 and route_clarity > 0.52:
+                refuge = network.nearest_role_node(
+                    network.position(civilian),
+                    ["shelter", "hospital", "evacuation_hub"],
+                )
+                if refuge is not None and civilian.node != refuge:
+                    civilian.target = network.route_next_node(civilian.node, refuge)
+                    civilian.progress = min(civilian.progress, 0.35)
+        elif network.scenario == "social_complex_large" and compliance > 0.56 and route_clarity > 0.56:
+            refuge = network.nearest_role_node(
+                network.position(civilian),
+                ["shelter", "hospital", "evacuation_hub"],
+            )
+            if refuge is not None and civilian.node != refuge:
+                civilian.target = network.route_next_node(civilian.node, refuge)
+                civilian.progress = min(civilian.progress, 0.35)
         speed_factor = _clip(
             0.62
             + 0.32 * compliance
@@ -1124,6 +1297,13 @@ def _zombie_contacts_qualitative(
             0.18,
             0.82,
         )
+        conversion_probability = _clip(
+            conversion_probability
+            + 0.14 * _agent_route_hazard(network, civilian)
+            + 0.06 * network.node_risk.get(node, 0.0),
+            0.18,
+            0.90,
+        )
         if rng.random() < conversion_probability:
             converted.append(Agent("zombie", civilian.node, civilian.target, civilian.progress))
     return converted
@@ -1155,9 +1335,14 @@ def _zombie_defender_contacts_qualitative(
             density_scale = 1.0 + 1.85 * max(0, contact_count - 1)
             base_risk = 0.55 if baseline_mode else 0.18
             ratio_scale = 1.0 + (0.35 * force_ratio if baseline_mode else 0.0)
-            risk = min(0.995, base_risk * density_scale * ratio_scale * fatigue_scale)
+            hazard_scale = 1.0 + 0.34 * _agent_route_hazard(network, defender)
+            risk = min(0.995, base_risk * density_scale * ratio_scale * fatigue_scale * hazard_scale)
         else:
-            risk = min(0.35 if baseline_mode else 0.10, 0.012 * pressure_count * fatigue_scale)
+            risk = min(
+                0.35 if baseline_mode else 0.10,
+                0.012 * pressure_count * fatigue_scale
+                + (0.026 if baseline_mode else 0.008) * _agent_route_hazard(network, defender),
+            )
         if rng.random() < risk:
             defender.alive = False
             losses += 1
@@ -1194,11 +1379,13 @@ def _defender_engagements_qualitative(
         density_scale = 1.0 + 0.35 * max(0, density - 1)
         target_index = min(nearby_indices, key=lambda zombie_index: distances[defender_index, zombie_index])
         target = zombies[target_index]
+        hazard = _agent_route_hazard(network, defender)
         neutralize_prob = min(
             0.95,
             config.base.neutralization_probability
             * (0.20 if baseline_mode else 1.0)
             * max(0.42, 1.0 - 0.46 * fatigue)
+            * max(0.60, 1.0 - 0.22 * hazard)
             / density_scale,
         )
         casualty_prob = min(
@@ -1206,7 +1393,8 @@ def _defender_engagements_qualitative(
             config.base.defender_casualty_probability
             * density_scale
             * (1.25 if baseline_mode else 1.0)
-            * (1.0 + 0.38 * fatigue),
+            * (1.0 + 0.38 * fatigue)
+            * (1.0 + 0.30 * hazard),
         )
         if rng.random() < neutralize_prob:
             target.alive = False
@@ -1231,15 +1419,19 @@ def _update_human_state(
     zombie_counts = _agent_counts_by_node(zombies)
     civilian_counts = _agent_counts_by_node(civilians)
     converted_counts = _agent_counts_by_node(converted)
+    unmanaged_social_crisis = network.scenario == "social_complex_large" and not action.social_action
     for node in network.nodes:
         exposure = min(1.0, zombie_counts.get(node, 0) / 12.0)
         crowding = min(1.0, civilian_counts.get(node, 0) / 24.0)
         loss_shock = min(1.0, converted_counts.get(node, 0) / 4.0)
+        route_hazard = network.node_risk.get(node, 0.0)
+        no_action_pressure = 1.0 if unmanaged_social_crisis and (exposure > 0.0 or crowding > 0.12) else 0.0
         human.panic[node] = _clip(
             human.panic[node]
             + 0.030 * exposure
             + 0.020 * crowding
             + 0.090 * loss_shock
+            + no_action_pressure * (0.014 + 0.014 * route_hazard)
             + float(rng.normal(0.0, 0.003)),
             0.0,
             1.0,
@@ -1250,6 +1442,7 @@ def _update_human_state(
             + 0.020 * loss_shock
             + 0.010 * (1.0 - human.trust[node])
             + 0.008 * (1.0 - human.route_clarity[node])
+            + no_action_pressure * (0.015 + 0.018 * (1.0 - human.trust[node]))
             + float(rng.normal(0.0, 0.003)),
             0.0,
             1.0,
@@ -1260,6 +1453,7 @@ def _update_human_state(
             - 0.024 * loss_shock
             - 0.020 * human.rumor_pressure[node]
             - 0.010 * human.message_fatigue[node]
+            - no_action_pressure * (0.018 + 0.010 * route_hazard)
             + float(rng.normal(0.0, 0.002)),
             0.0,
             1.0,
@@ -1269,6 +1463,7 @@ def _update_human_state(
             + 0.010 * exposure
             + 0.010 * human.rumor_pressure[node]
             + 0.006 * (1.0 - human.trust[node])
+            + no_action_pressure * 0.006
             + float(rng.normal(0.0, 0.002)),
             0.0,
             1.0,
@@ -1279,6 +1474,7 @@ def _update_human_state(
             - 0.008 * exposure
             - 0.010 * human.rumor_pressure[node]
             - 0.006 * human.message_fatigue[node]
+            - no_action_pressure * 0.012
             + float(rng.normal(0.0, 0.002)),
             0.0,
             1.0,
@@ -1307,6 +1503,7 @@ def _update_human_state(
         human.institutional_friction
         + 0.008 * _mean_dict(human.rumor_pressure)
         + 0.006 * (1.0 - _mean_dict(human.trust))
+        + (0.010 if unmanaged_social_crisis else 0.0)
         - 0.003,
         0.0,
         1.0,
@@ -1522,6 +1719,7 @@ def _codex_qualitative_prompt(
             "compliance, low route clarity, high message fatigue, or high "
             "responder fatigue can lose."
         ),
+        "network_context": _network_context(network),
         "social_action_guidance": {
             "public_message": (
                 "best for conflicting stories when trust is adequate and residents "
@@ -1604,14 +1802,26 @@ def _qualitative_run_metrics(
 ) -> Dict[str, float]:
     horizon = max(run.time[-1], 1.0)
     zombie_victory = 1.0 if run.zombie_victory else 0.0
+    victory_time_fraction = (
+        float(run.zombie_victory_time) / horizon if run.zombie_victory else 1.0
+    )
     clearance_component = (
         2.0 + (1.0 - float(run.zombie_victory_time) / horizon)
         if run.zombie_victory
         else float(run.clearance_time) / horizon
     )
-    civilian_survival = float(run.civilians[-1] / max(run.civilians[0], 1.0))
+    observed_civilian_survival = float(run.civilians[-1] / max(run.civilians[0], 1.0))
     defender_survival = float(run.defenders[-1] / max(run.defenders[0], 1.0))
     final_zombies = float(run.zombies[-1] / max(run.zombies[0], 1.0))
+    if config.base.scenario == "social_complex_large" and run.zombie_victory:
+        collapse_exposure = _clip(
+            1.0 - 0.72 * (1.0 - victory_time_fraction) - 0.20 * final_zombies,
+            0.0,
+            1.0,
+        )
+        civilian_survival = observed_civilian_survival * collapse_exposure
+    else:
+        civilian_survival = observed_civilian_survival
     physical_score = (
         clearance_component
         + 0.35 * (1.0 - civilian_survival)
@@ -1626,6 +1836,18 @@ def _qualitative_run_metrics(
     mean_route_clarity = float(np.mean(run.mean_route_clarity))
     mean_message_fatigue = float(np.mean(run.mean_message_fatigue))
     fatigue = float(np.mean(run.responder_fatigue))
+    if config.base.scenario == "social_complex_large":
+        human_collapse_penalty = zombie_victory * (
+            1.15 + 0.95 * (1.0 - victory_time_fraction) + 0.35 * final_zombies
+        )
+    else:
+        human_collapse_penalty = zombie_victory * (
+            0.90 + 0.60 * (1.0 - victory_time_fraction)
+        )
+    human_survival_penalty = (
+        0.45 * (1.0 - civilian_survival)
+        + 0.35 * (1.0 - defender_survival)
+    )
     human_score = (
         1.25 * (1.0 - mean_trust)
         + 1.30 * (1.0 - mean_compliance)
@@ -1635,6 +1857,8 @@ def _qualitative_run_metrics(
         + 0.95 * mean_message_fatigue
         + 1.15 * fatigue
         + 0.55 * float(np.mean(run.institutional_friction))
+        + human_collapse_penalty
+        + human_survival_penalty
     )
     score = (
         config.physical_score_weight * physical_score
@@ -1646,7 +1870,8 @@ def _qualitative_run_metrics(
         "human_score_lower_is_better": float(human_score),
         "qualitative_response_score_lower_is_better": float(score),
         "zombie_victory": zombie_victory,
-        "civilian_survival_fraction": civilian_survival,
+        "civilian_survival_fraction": float(civilian_survival),
+        "observed_civilian_survival_fraction": float(observed_civilian_survival),
         "defender_survival_fraction": defender_survival,
         "mean_trust": mean_trust,
         "mean_compliance": mean_compliance,
@@ -1655,6 +1880,8 @@ def _qualitative_run_metrics(
         "mean_route_clarity": mean_route_clarity,
         "mean_message_fatigue": mean_message_fatigue,
         "responder_fatigue": fatigue,
+        "human_collapse_penalty": float(human_collapse_penalty),
+        "human_survival_penalty": float(human_survival_penalty),
         "mean_action_budget_used": float(np.mean(run.action_budget_used)),
         "mean_social_budget_used": float(np.mean(run.social_budget_used)),
         "mean_institutional_friction": float(np.mean(run.institutional_friction)),
@@ -1753,11 +1980,19 @@ def _district_response_profile(node: str) -> Dict[str, float]:
         "shelter": 1.00,
         "medical": 1.00,
     }
-    if any(token in node for token in ["airport", "international", "downtown", "lake_eola"]):
+    if any(token in node for token in ["airport_gate", "airport", "international", "downtown", "lake_eola"]):
         profile.update({"broadcast": 1.18, "guidance": 1.18, "liaison": 0.86, "shelter": 0.92})
-    elif any(token in node for token in ["campus", "college"]):
+    elif any(token in node for token in ["hospital_med"]):
+        profile.update({"medical": 1.28, "guidance": 1.10, "liaison": 1.04, "shelter": 0.94})
+    elif any(token in node for token in ["industrial_port"]):
+        profile.update({"guidance": 1.16, "broadcast": 0.90, "liaison": 0.96, "medical": 0.92})
+    elif any(token in node for token in ["river_island"]):
+        profile.update({"guidance": 1.24, "shelter": 0.86, "broadcast": 0.92, "liaison": 1.06})
+    elif any(token in node for token in ["north_reserve"]):
+        profile.update({"medical": 1.08, "liaison": 1.12, "broadcast": 0.86, "guidance": 0.96})
+    elif any(token in node for token in ["campus", "college", "university_campus"]):
         profile.update({"liaison": 1.18, "medical": 1.10, "broadcast": 0.92, "guidance": 1.04})
-    elif any(token in node for token in ["parramore", "holden", "millenia"]):
+    elif any(token in node for token in ["parramore", "holden", "millenia", "suburb_shelter"]):
         profile.update({"liaison": 1.24, "shelter": 1.08, "broadcast": 0.82, "guidance": 0.94})
     elif any(token in node for token in ["winter", "audubon", "baldwin", "ivanhoe", "corrine"]):
         profile.update({"shelter": 1.14, "liaison": 1.08, "medical": 1.06, "broadcast": 0.94})
@@ -1765,11 +2000,19 @@ def _district_response_profile(node: str) -> Dict[str, float]:
 
 
 def _district_context(node: str) -> str:
-    if any(token in node for token in ["airport", "international", "downtown", "lake_eola"]):
+    if "hospital_med" in node:
+        return "hospital district: triage and reliable corridors protect critical medical capacity"
+    if "industrial_port" in node:
+        return "industrial port district: freight chokepoints and confusing access roads make route guidance important"
+    if "river_island" in node:
+        return "bridgehead district: bridges and tunnels are chokepoints where route clarity and panic control matter"
+    if "north_reserve" in node:
+        return "responder staging district: rotation and interagency coordination affect tactical reliability"
+    if any(token in node for token in ["airport_gate", "airport", "international", "downtown", "lake_eola"]):
         return "visitor corridor: broadcasts and clear route guidance work well if message fatigue is low"
-    if any(token in node for token in ["campus", "college"]):
+    if any(token in node for token in ["campus", "college", "university_campus"]):
         return "campus district: trusted local intermediaries and triage cues are important"
-    if any(token in node for token in ["parramore", "holden", "millenia"]):
+    if any(token in node for token in ["parramore", "holden", "millenia", "suburb_shelter"]):
         return "lower-trust residential district: liaison usually works before repeated official messaging"
     if any(token in node for token in ["winter", "audubon", "baldwin", "ivanhoe", "corrine"]):
         return "residential district: shelter access and local liaison reduce panic more than broadcast repetition"

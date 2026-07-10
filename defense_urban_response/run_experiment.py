@@ -43,6 +43,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260609, help="Base random seed.")
     parser.add_argument("--map", type=Path, default=DEFAULT_MAP, help="Road-network JSON path.")
     parser.add_argument(
+        "--scenario",
+        choices=["default", "social_complex_large"],
+        default="default",
+        help=(
+            "Urban scenario profile. 'default' preserves the existing road-map "
+            "benchmark; 'social_complex_large' uses a generated larger city "
+            "network with facility roles, chokepoints, hazardous corridors, "
+            "role-biased spawning, and stronger sociotechnical coupling."
+        ),
+    )
+    parser.add_argument(
         "--study",
         choices=["numeric", "qualitative", "both"],
         default="both",
@@ -131,6 +142,22 @@ def parse_args() -> argparse.Namespace:
         default=20,
         help="Print one simulation progress line every N steps. Use 0 to disable.",
     )
+    parser.add_argument(
+        "--qualitative-report-mode",
+        choices=["full", "removed", "shuffled", "explicit"],
+        default="full",
+        help=(
+            "Qualitative report ablation mode. 'full' uses natural reports; "
+            "'removed' gives no reports; 'shuffled' mismatches report content "
+            "to latent district state; 'explicit' gives direct semantic labels."
+        ),
+    )
+    parser.add_argument(
+        "--qualitative-report-noise",
+        type=float,
+        default=0.15,
+        help="Probability of adding a noisy qualitative report.",
+    )
     parser.set_defaults(include_codex=True)
     return parser.parse_args()
 
@@ -148,8 +175,10 @@ def main() -> None:
         control_update_interval = 1
     config = UrbanResponseConfig(
         steps=args.steps,
+        scenario=args.scenario,
         control_update_interval=control_update_interval,
         monte_carlo_samples=args.monte_carlo_samples,
+        **_scenario_overrides(args.scenario),
     )
     codex_runs = args.runs if args.equal_codex_runs else args.codex_runs
 
@@ -190,7 +219,11 @@ def main() -> None:
         qualitative_output_dir = (
             output_dir / "qualitative_response" if args.study == "both" else output_dir
         )
-        qualitative_config = UrbanQualitativeConfig(base=config)
+        qualitative_config = UrbanQualitativeConfig(
+            base=config,
+            report_mode=args.qualitative_report_mode,
+            report_noise_probability=args.qualitative_report_noise,
+        )
         qualitative_policies = _qualitative_policies(args)
         qualitative_runs_by_policy = {
             policy.name: args.runs for policy in qualitative_policies
@@ -265,6 +298,26 @@ def _policies(args: argparse.Namespace):
     return policies
 
 
+def _scenario_overrides(scenario: str) -> dict:
+    if scenario != "social_complex_large":
+        return {}
+    return {
+        "initial_zombies": 220,
+        "initial_civilians": 520,
+        "initial_defenders": 44,
+        "civilian_speed": 16.0,
+        "zombie_speed": 32.0,
+        "defender_speed": 31.0,
+        "defender_visibility_m": 225.0,
+        "zombie_detection_m": 260.0,
+        "bite_radius_m": 50.0,
+        "engagement_radius_m": 29.0,
+        "neutralization_probability": 0.44,
+        "defender_casualty_probability": 0.68,
+        "noise_probability": 0.06,
+    }
+
+
 def _qualitative_policies(args: argparse.Namespace):
     policies = [
         UrbanQualitativeBaselinePolicy(),
@@ -306,6 +359,7 @@ def _print_numeric_footer(
     if args.include_codex:
         print(f"Runs per Codex policy: {codex_runs}")
     print(f"Steps per run: {args.steps}")
+    print(f"Scenario: {args.scenario}")
     print(f"Control update interval: {control_update_interval}")
     print(f"Monte Carlo samples: {args.monte_carlo_samples}")
     print(f"Judge override tolerance: {args.judge_override_tolerance}")
@@ -332,6 +386,7 @@ def _print_qualitative_footer(
     if args.include_codex:
         print(f"Runs per Codex policy: {codex_runs}")
     print(f"Steps per run: {args.steps}")
+    print(f"Scenario: {args.scenario}")
     print(f"Control update interval: {control_update_interval}")
     print_qualitative_summary(summary)
     print("Qualitative outputs wrote:")

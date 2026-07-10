@@ -45,6 +45,7 @@ class QualitativeConfig:
     human_score_weight: float = 2.25
     report_count: int = 5
     report_noise_probability: float = 0.15
+    report_mode: str = "full"
     trust_recovery_rate: float = 0.012
     rumor_decay_rate: float = 0.030
     fatigue_recovery_rate: float = 0.020
@@ -693,12 +694,42 @@ def _generate_reports(
     rng: np.random.Generator,
     config: QualitativeConfig,
 ) -> List[str]:
+    if config.report_mode == "removed":
+        return []
+    if config.report_mode == "shuffled":
+        human = _shuffled_supply_chain_human_state(human, rng)
     reports: List[Tuple[float, str]] = []
     rumor_target = max(human.rumor_pressure, key=human.rumor_pressure.get)
     trust_target = min(human.trust, key=human.trust.get)
     equity_target = max(human.equity_pressure, key=human.equity_pressure.get)
     fatigue_target = max(human.workforce_fatigue, key=human.workforce_fatigue.get)
     cooperation_edge = min(human.carrier_cooperation, key=human.carrier_cooperation.get)
+
+    if config.report_mode == "explicit":
+        reports = [
+            (
+                human.rumor_pressure[rumor_target],
+                f"EXPLICIT_LABEL rumor high at {rumor_target}; use public_update if trust is adequate.",
+            ),
+            (
+                1.0 - human.trust[trust_target],
+                f"EXPLICIT_LABEL low_trust distrust at {trust_target}; use community_liaison.",
+            ),
+            (
+                human.equity_pressure[equity_target],
+                f"EXPLICIT_LABEL equity_pressure unfair allocation high at {equity_target}; use equity_rebalance.",
+            ),
+            (
+                human.workforce_fatigue[fatigue_target],
+                f"EXPLICIT_LABEL workforce_fatigue crew fatigue high at {fatigue_target}; use staff_rotation.",
+            ),
+            (
+                1.0 - human.carrier_cooperation[cooperation_edge],
+                f"EXPLICIT_LABEL carrier_cooperation driver reluctance low on {cooperation_edge[0]} -> {cooperation_edge[1]}; use carrier_negotiation.",
+            ),
+        ]
+        reports.sort(key=lambda item: item[0], reverse=True)
+        return [report for _, report in reports[: config.report_count]]
 
     reports.append(
         (
@@ -761,6 +792,27 @@ def _generate_reports(
 
     reports.sort(key=lambda item: item[0], reverse=True)
     return [report for _, report in reports[: config.report_count]]
+
+
+def _shuffled_supply_chain_human_state(
+    human: HumanLayerState,
+    rng: np.random.Generator,
+) -> HumanLayerState:
+    def shuffled(values: Dict[Any, float]) -> Dict[Any, float]:
+        keys = list(values)
+        vals = [values[key] for key in keys]
+        rng.shuffle(vals)
+        return dict(zip(keys, vals))
+
+    return HumanLayerState(
+        trust=shuffled(human.trust),
+        compliance=shuffled(human.compliance),
+        rumor_pressure=shuffled(human.rumor_pressure),
+        equity_pressure=shuffled(human.equity_pressure),
+        workforce_fatigue=shuffled(human.workforce_fatigue),
+        carrier_cooperation=shuffled(human.carrier_cooperation),
+        institutional_friction=float(human.institutional_friction),
+    )
 
 
 def _normalize_qualitative_action(

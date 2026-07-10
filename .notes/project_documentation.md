@@ -76,6 +76,12 @@ Run the defense urban-response benchmark:
 .venv/bin/python defense_urban_response/run_experiment.py --study both --runs 10 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --progress-interval 20 --codex-timeout 45 --output-dir results/urban_response_final
 ```
 
+Run the extended social-complex-large urban benchmark:
+
+```bash
+.venv/bin/python defense_urban_response/run_experiment.py --scenario social_complex_large --study both --runs 30 --equal-codex-runs --steps 180 --codex-interval 25 --control-update-interval 25 --monte-carlo-samples 24 --progress-interval 20 --codex-timeout 45 --output-dir results/urban_response_social_complex_large_30
+```
+
 Run the larger cyclic supply-chain sabotage benchmark:
 
 ```bash
@@ -316,11 +322,18 @@ road-network hostile-contagion response scenario intended to test whether
 guided intervention policies outperform weak unmanaged baseline patrol under
 severe outbreak pressure.
 
-Current default counts:
+The extended urban profile `--scenario social_complex_large` is a generated
+72-node/156-edge city graph with critical facility roles, chokepoints, bridges,
+tunnels, evacuation corridors, staging routes, route hazards, and role-biased
+initial placement. It changes physical routing and casualty/conversion risks,
+not just the qualitative report layer. It should be used as the urban
+complexity sensitivity parallel to the cyclic-large supply-chain run.
 
-- zombies: `150`
-- civilians: `300`
-- defenders: `30`
+Current expanded scenario counts:
+
+- zombies: `220`
+- civilians: `520`
+- defenders: `44`
 - steps: `180`
 
 Current dynamics:
@@ -390,26 +403,33 @@ tailored decoder and makes the urban qualitative task match the supply-chain
 finding more closely: Codex is evaluated on interpreting qualitative reports and
 administering bounded social/tactical controls.
 
-Current paper-facing urban qualitative result:
+Current paper-facing urban result:
 
 ```text
-results/urban_response_social_complexity_admin_fixed_50/summary.json
-results/urban_response_social_complexity_admin_fixed_50/INTERPRETATION.md
+results/urban_response_social_complex_large_semantic_50/
+results/urban_response_social_complex_large_semantic_50/INTERPRETATION.md
 ```
 
-The run uses 50 paired qualitative runs after fixing the Codex-admin
-zero-intensity action issue. `q_structured_human_state_monte_carlo` ranks first
-at `49.339`; `q_codex_monte_carlo_qualitative_admin` ranks second at `50.359`;
-`q_codex_qualitative` ranks third at `50.748`; deployable non-Codex
-baselines are worse at `51.487`. Codex-admin improves over the deployable
-baseline by `-1.128` mean score, but the 95% CI crosses zero
-(`[-2.862, 0.607]`).
+The semantic 50-run expanded urban study is now the current paper-facing urban
+result. Numeric tactical control remains competitive rather than decisively
+Codex-dominated: `codex_guardian` ranks first at `2.481`, but its paired
+comparison against the best non-Codex controller, `rule_based`, has CI crossing
+zero (`-0.182`, 95% CI `[-0.532, 0.169]`).
 
-Interpretation for the manuscript: this urban result reinforces the
-supply-chain sabotage conclusion directionally. It should be presented as
-cross-domain support that Codex-style controllers are useful when qualitative
-sociotechnical reports must be interpreted into bounded controls, not as a
-decisive standalone urban victory.
+The qualitative semantic branch provides the stronger urban finding.
+`q_codex_monte_carlo_qualitative_admin` ranks first at `73.539`;
+`q_structured_human_state_monte_carlo` is second at `73.739`;
+`q_codex_qualitative` is third at `75.642`. Codex-admin beats the best
+deployable non-Codex qualitative policy, `q_keyword_monte_carlo`, by `-12.181`
+mean score with 95% CI `[-15.534, -8.829]` and win rate `0.92`. It is
+statistically comparable to the privileged structured-human-state reference
+(`-0.200`, 95% CI `[-2.739, 2.338]`).
+
+Interpretation for the manuscript: this urban result is now a clear
+cross-domain positive result for the semantic-administration thesis. Codex
+should be framed as valuable when qualitative sociotechnical reports must be
+interpreted into bounded interventions, not as a universal replacement for
+numeric tactical search.
 
 Metrics and interpretation:
 

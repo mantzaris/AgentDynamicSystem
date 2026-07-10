@@ -295,30 +295,49 @@ normal reports. Reports describe observable behavior and coordination symptoms,
 so the Codex qualitative controller is tested on semantic interpretation in the
 same spirit as the supply-chain qualitative study.
 
-Current urban qualitative result:
+Current expanded urban semantic result:
 
-- Result file: `results/urban_response_social_complexity_admin_fixed_50/summary.json`
+- Result directory: `results/urban_response_social_complex_large_semantic_50/`
 - Interpretation file:
-  `results/urban_response_social_complexity_admin_fixed_50/INTERPRETATION.md`
-- `q_structured_human_state_monte_carlo`: `49.339`
-- `q_codex_monte_carlo_qualitative_admin`: `50.359`
-- `q_codex_qualitative`: `50.748`
-- `q_monte_carlo_tactical`: `51.487`
-- `q_keyword_monte_carlo`: `51.487`
-- `q_baseline`: `51.865`
+  `results/urban_response_social_complex_large_semantic_50/INTERPRETATION.md`
+- Numeric tactical branch: `codex_guardian` ranks first at `2.481`, but does
+  not significantly beat the best non-Codex controller, `rule_based`
+  (`-0.182`, 95% CI `[-0.532, 0.169]`).
+- Qualitative semantic branch: `q_codex_monte_carlo_qualitative_admin` ranks
+  first at `73.539`; `q_structured_human_state_monte_carlo` is second at
+  `73.739`; `q_codex_qualitative` is third at `75.642`.
+- Codex-admin beats the best deployable non-Codex qualitative baseline,
+  `q_keyword_monte_carlo`, by `-12.181` mean score with 95% CI
+  `[-15.534, -8.829]` and win rate `0.92`.
+- Codex-admin beats `q_baseline` by `-8.614` mean score with 95% CI
+  `[-10.594, -6.634]` and win rate `0.96`.
+- Codex-admin is statistically comparable to the privileged structured
+  human-state reference (`-0.200`, 95% CI `[-2.739, 2.338]`).
 
-This reinforces the supply-chain conclusion directionally but not decisively.
-Codex-admin improves over the best deployable non-Codex baseline by `-1.128`
-mean score with 95% CI `[-2.862, 0.607]`; direct Codex improves by `-0.739`
-with 95% CI `[-2.508, 1.030]`. The CIs cross zero, so this is cross-domain
-support rather than the primary positive result. The strongest positive result
-remains the supply-chain qualitative study.
+This is now the main urban-defense result. It supports the current paper
+conclusion: conventional tactical policies remain competitive on a numeric
+branch, while Codex becomes valuable when qualitative reports and latent
+sociotechnical conditions must be interpreted into bounded interventions. The
+older `urban_response_social_complexity_admin_fixed_50` result is superseded.
+
+An extended urban scenario is now implemented with
+`--scenario social_complex_large`. It is the urban analogue of the cyclic-large
+supply-chain extension. It uses a generated 72-node/156-edge city graph with
+critical facility roles, bridges, tunnels, causeways, freight roads,
+evacuation corridors, responder staging routes, role-biased spawning, travel
+multipliers, and route hazards. Route hazards affect travel time, civilian
+conversion risk, responder casualty risk, and tactical scoring; qualitative
+civilians can route toward shelters/hospitals/evacuation hubs when route
+clarity and compliance permit. This is intended to test the same conclusion
+under a physically richer urban substrate, not merely under a larger social
+report layer.
 
 Current pressure regime:
 
-- zombies start at `150` and move quickly;
-- civilians start at `300`;
-- defenders start at `30`;
+- zombies start at `220` and move quickly in the expanded social-complex-large
+  scenario;
+- civilians start at `520`;
+- defenders start at `44`;
 - zombies are directional road movers: they prefer continuing forward through
   the road graph and branch at intersections rather than acting as pure random
   walkers;

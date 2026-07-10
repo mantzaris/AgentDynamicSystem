@@ -26,6 +26,20 @@ Useful venue framing:
 - I/ITSEC: training/simulation decision-support benchmark with LLM-guided
   tactic selection.
 
+Current result to cite:
+
+- `results/urban_response_social_complex_large_semantic_50/`
+- Numeric tactical branch: `codex_guardian` ranks first but does not
+  significantly beat the best non-Codex controller, `rule_based`.
+- Qualitative semantic branch:
+  `q_codex_monte_carlo_qualitative_admin` ranks first, decisively beats the
+  best deployable non-Codex qualitative baseline, and is statistically
+  comparable to the privileged structured-human-state controller.
+
+Paper framing should emphasize this split: Codex is not a universal numeric
+controller, but it is valuable as a semantic administrator when qualitative
+reports must be interpreted into bounded interventions.
+
 Important caveat:
 
 The bundled road file is a development scaffold with approximate coordinates.

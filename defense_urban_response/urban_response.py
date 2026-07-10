@@ -25,6 +25,7 @@ import numpy as np
 @dataclass(frozen=True)
 class UrbanResponseConfig:
     steps: int = 180
+    scenario: str = "default"
     initial_zombies: int = 150
     initial_civilians: int = 300
     initial_defenders: int = 30
@@ -73,25 +74,71 @@ class RunResult:
 
 
 class RoadNetwork:
-    def __init__(self, path: Path = DEFAULT_MAP) -> None:
-        payload = json.loads(path.read_text())
+    def __init__(self, path: Path = DEFAULT_MAP, scenario: str = "default") -> None:
+        if scenario == "default":
+            payload = json.loads(path.read_text())
+        elif scenario == "social_complex_large":
+            payload = _social_complex_large_payload()
+        else:
+            raise ValueError(f"unknown urban scenario: {scenario}")
+        self.scenario = scenario
         self.name = payload["name"]
         self.source_note = payload.get("source_note", "")
         self.latlon = {key: tuple(value) for key, value in payload["nodes"].items()}
         self.nodes = list(self.latlon)
         self.xy = self._project(self.latlon)
         self.edges = [(a, b, name) for a, b, name in payload["edges"]]
+        self.node_roles: Dict[str, List[str]] = {
+            node: list(roles)
+            for node, roles in payload.get("node_roles", {}).items()
+            if node in self.nodes
+        }
+        self.node_zones: Dict[str, str] = {
+            node: str(zone)
+            for node, zone in payload.get("node_zones", {}).items()
+            if node in self.nodes
+        }
+        self.node_risk: Dict[str, float] = {
+            node: float(value)
+            for node, value in payload.get("node_risk", {}).items()
+            if node in self.nodes
+        }
+        self.spawn_weights: Dict[str, Dict[str, float]] = {
+            kind: {
+                node: float(weight)
+                for node, weight in weights.items()
+                if node in self.nodes and float(weight) > 0.0
+            }
+            for kind, weights in payload.get("spawn_weights", {}).items()
+        }
+        self.edge_profiles: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for key, profile in payload.get("edge_profiles", {}).items():
+            first, second = key.split("|", 1)
+            if first in self.nodes and second in self.nodes:
+                normalized = {
+                    "kind": str(profile.get("kind", "road")),
+                    "travel_multiplier": float(profile.get("travel_multiplier", 1.0)),
+                    "hazard": float(profile.get("hazard", 0.0)),
+                }
+                self.edge_profiles[(first, second)] = normalized
+                self.edge_profiles[(second, first)] = normalized
         self.neighbors: Dict[str, List[str]] = {node: [] for node in self.nodes}
         self.edge_names: Dict[Tuple[str, str], str] = {}
         self.edge_lengths: Dict[Tuple[str, str], float] = {}
+        self.edge_hazard: Dict[Tuple[str, str], float] = {}
         for a, b, name in self.edges:
             self.neighbors[a].append(b)
             self.neighbors[b].append(a)
             self.edge_names[(a, b)] = name
             self.edge_names[(b, a)] = name
             length = float(np.linalg.norm(np.array(self.xy[a]) - np.array(self.xy[b])))
-            self.edge_lengths[(a, b)] = max(length, 1.0)
-            self.edge_lengths[(b, a)] = max(length, 1.0)
+            profile = self.edge_profile(a, b)
+            effective_length = max(length * float(profile.get("travel_multiplier", 1.0)), 1.0)
+            self.edge_lengths[(a, b)] = effective_length
+            self.edge_lengths[(b, a)] = effective_length
+            hazard = float(profile.get("hazard", 0.0))
+            self.edge_hazard[(a, b)] = hazard
+            self.edge_hazard[(b, a)] = hazard
         self._shortest_paths: Dict[str, Dict[str, float]] = {}
 
     def position(self, agent: Agent) -> np.ndarray:
@@ -103,9 +150,18 @@ class RoadNetwork:
         return float(np.linalg.norm(self.position(a) - self.position(b)))
 
     def random_agent(self, kind: str, rng: np.random.Generator) -> Agent:
-        node = str(rng.choice(self.nodes))
+        node = self._weighted_spawn_node(kind, rng)
         target = self.random_neighbor(node, rng)
         return Agent(kind=kind, node=node, target=target, progress=float(rng.random()))
+
+    def _weighted_spawn_node(self, kind: str, rng: np.random.Generator) -> str:
+        weights = self.spawn_weights.get(kind)
+        if not weights:
+            return str(rng.choice(self.nodes))
+        nodes = list(weights)
+        probabilities = np.array([weights[node] for node in nodes], dtype=float)
+        probabilities = probabilities / np.sum(probabilities)
+        return str(nodes[int(rng.choice(len(nodes), p=probabilities))])
 
     def random_neighbor(self, node: str, rng: np.random.Generator) -> str:
         return str(rng.choice(self.neighbors[node]))
@@ -150,6 +206,31 @@ class RoadNetwork:
                 return goal
         return current
 
+    def edge_profile(self, first: str, second: str) -> Dict[str, Any]:
+        return self.edge_profiles.get((first, second), {"kind": "road", "travel_multiplier": 1.0, "hazard": 0.0})
+
+    def roles(self, node: str) -> List[str]:
+        return self.node_roles.get(node, [])
+
+    def role_nodes(self, role: str) -> List[str]:
+        return [node for node in self.nodes if role in self.roles(node)]
+
+    def nearest_role_node(self, point: np.ndarray, roles: Sequence[str]) -> Optional[str]:
+        allowed = [
+            node
+            for node in self.nodes
+            if any(role in self.roles(node) for role in roles)
+        ]
+        if not allowed:
+            return None
+        return min(allowed, key=lambda node: float(np.linalg.norm(np.array(self.xy[node]) - point)))
+
+    def node_context(self, node: str) -> str:
+        roles = ", ".join(self.roles(node)) or "ordinary intersection"
+        zone = self.node_zones.get(node, "mixed")
+        risk = self.node_risk.get(node, 0.0)
+        return f"{zone}; {roles}; local route-risk={risk:.2f}"
+
     def nearest_node(self, point: np.ndarray) -> str:
         return min(self.nodes, key=lambda node: float(np.linalg.norm(np.array(self.xy[node]) - point)))
 
@@ -178,6 +259,241 @@ class RoadNetwork:
             node: ((lon - lon0) * meters_per_lon, (lat - lat0) * meters_per_lat)
             for node, (lat, lon) in latlon.items()
         }
+
+
+def _social_complex_large_payload() -> Dict[str, Any]:
+    base_lat = 28.5383
+    base_lon = -81.3792
+    zone_offsets = {
+        "downtown_core": (0.0, 0.0),
+        "hospital_med": (1350.0, 180.0),
+        "airport_gate": (3050.0, -950.0),
+        "industrial_port": (2850.0, 1220.0),
+        "university_campus": (-1520.0, 1160.0),
+        "suburb_shelter": (-2850.0, -160.0),
+        "north_reserve": (-1350.0, -1320.0),
+        "river_island": (560.0, 1660.0),
+    }
+    zones = list(zone_offsets)
+    nodes: Dict[str, Tuple[float, float]] = {}
+    node_roles: Dict[str, List[str]] = {}
+    node_zones: Dict[str, str] = {}
+    node_risk: Dict[str, float] = {}
+    spawn_weights = {"zombie": {}, "civilian": {}, "defender": {}}
+    edges: List[List[str]] = []
+    edge_profiles: Dict[str, Dict[str, Any]] = {}
+
+    def latlon(x: float, y: float) -> Tuple[float, float]:
+        meters_per_lat = 111_320.0
+        meters_per_lon = 111_320.0 * np.cos(np.deg2rad(base_lat))
+        return (base_lat + y / meters_per_lat, base_lon + x / meters_per_lon)
+
+    def node_name(zone: str, index: int) -> str:
+        return f"{zone}_{index}"
+
+    role_by_zone = {
+        "downtown_core": ["command", "transit_hub"],
+        "hospital_med": ["hospital", "medical_triage"],
+        "airport_gate": ["airfield", "evacuation_hub"],
+        "industrial_port": ["port", "supply_depot"],
+        "university_campus": ["shelter", "campus"],
+        "suburb_shelter": ["shelter", "residential"],
+        "north_reserve": ["staging_base", "reserve_depot"],
+        "river_island": ["bridgehead", "chokepoint"],
+    }
+    zone_risk = {
+        "downtown_core": 0.30,
+        "hospital_med": 0.24,
+        "airport_gate": 0.38,
+        "industrial_port": 0.42,
+        "university_campus": 0.22,
+        "suburb_shelter": 0.18,
+        "north_reserve": 0.16,
+        "river_island": 0.50,
+    }
+    zone_travel = {
+        "downtown_core": 1.16,
+        "hospital_med": 1.10,
+        "airport_gate": 1.20,
+        "industrial_port": 1.28,
+        "university_campus": 1.08,
+        "suburb_shelter": 1.06,
+        "north_reserve": 1.04,
+        "river_island": 1.42,
+    }
+
+    for zone, (zone_x, zone_y) in zone_offsets.items():
+        for row in range(3):
+            for column in range(3):
+                index = row * 3 + column
+                name = node_name(zone, index)
+                x = zone_x + (column - 1) * 420.0
+                y = zone_y + (row - 1) * 420.0
+                nodes[name] = latlon(x, y)
+                node_zones[name] = zone.replace("_", " ")
+                roles = []
+                if index == 4:
+                    roles.extend(role_by_zone[zone])
+                if index in {1, 3, 5, 7}:
+                    roles.append("corridor")
+                if index in {0, 2, 6, 8}:
+                    roles.append("neighborhood")
+                node_roles[name] = roles
+                node_risk[name] = zone_risk[zone] + (0.10 if index == 4 else 0.0)
+
+                spawn_weights["civilian"][name] = {
+                    "downtown_core": 4.0,
+                    "hospital_med": 3.6,
+                    "airport_gate": 2.8,
+                    "industrial_port": 2.2,
+                    "university_campus": 3.8,
+                    "suburb_shelter": 4.2,
+                    "north_reserve": 1.2,
+                    "river_island": 1.6,
+                }[zone] + (2.4 if index == 4 else 0.0)
+                spawn_weights["zombie"][name] = {
+                    "downtown_core": 3.0,
+                    "hospital_med": 1.8,
+                    "airport_gate": 4.2,
+                    "industrial_port": 4.8,
+                    "university_campus": 2.0,
+                    "suburb_shelter": 1.4,
+                    "north_reserve": 1.0,
+                    "river_island": 3.7,
+                }[zone] + (2.0 if index in {4, 5, 7} else 0.0)
+                spawn_weights["defender"][name] = {
+                    "downtown_core": 2.4,
+                    "hospital_med": 3.8,
+                    "airport_gate": 2.8,
+                    "industrial_port": 1.8,
+                    "university_campus": 1.8,
+                    "suburb_shelter": 2.0,
+                    "north_reserve": 5.2,
+                    "river_island": 1.6,
+                }[zone] + (3.0 if index == 4 else 0.0)
+
+    def add_edge(
+        first: str,
+        second: str,
+        road: str,
+        kind: str = "road",
+        travel_multiplier: float = 1.0,
+        hazard: float = 0.0,
+    ) -> None:
+        edges.append([first, second, road])
+        edge_profiles[f"{first}|{second}"] = {
+            "kind": kind,
+            "travel_multiplier": travel_multiplier,
+            "hazard": hazard,
+        }
+
+    for zone in zones:
+        travel = zone_travel[zone]
+        hazard = zone_risk[zone] * 0.55
+        for row in range(3):
+            for column in range(2):
+                add_edge(
+                    node_name(zone, row * 3 + column),
+                    node_name(zone, row * 3 + column + 1),
+                    f"{zone.replace('_', ' ').title()} local east-west",
+                    travel_multiplier=travel,
+                    hazard=hazard,
+                )
+        for row in range(2):
+            for column in range(3):
+                add_edge(
+                    node_name(zone, row * 3 + column),
+                    node_name(zone, (row + 1) * 3 + column),
+                    f"{zone.replace('_', ' ').title()} local north-south",
+                    travel_multiplier=travel,
+                    hazard=hazard,
+                )
+        add_edge(node_name(zone, 0), node_name(zone, 4), f"{zone} diagonal relief", travel_multiplier=travel * 1.12, hazard=hazard)
+        add_edge(node_name(zone, 4), node_name(zone, 8), f"{zone} diagonal relief", travel_multiplier=travel * 1.12, hazard=hazard)
+        add_edge(node_name(zone, 2), node_name(zone, 4), f"{zone} diagonal relief", travel_multiplier=travel * 1.12, hazard=hazard)
+        add_edge(node_name(zone, 4), node_name(zone, 6), f"{zone} diagonal relief", travel_multiplier=travel * 1.12, hazard=hazard)
+
+    connectors = [
+        ("downtown_core_5", "hospital_med_3", "Hospital crosstown", "arterial", 1.16, 0.22),
+        ("downtown_core_2", "river_island_6", "North river bridge", "bridge", 1.86, 0.62),
+        ("downtown_core_8", "river_island_0", "South river bridge", "bridge", 1.74, 0.58),
+        ("river_island_2", "industrial_port_6", "Freight bridge", "bridge", 1.92, 0.68),
+        ("river_island_8", "hospital_med_6", "Medical bridge", "bridge", 1.70, 0.55),
+        ("river_island_3", "university_campus_5", "Campus causeway", "causeway", 1.68, 0.50),
+        ("hospital_med_5", "airport_gate_3", "Airport medical expressway", "arterial", 1.28, 0.30),
+        ("airport_gate_7", "industrial_port_1", "Perimeter freight road", "freight", 1.44, 0.46),
+        ("industrial_port_3", "hospital_med_8", "Port hospital connector", "arterial", 1.36, 0.38),
+        ("downtown_core_3", "university_campus_5", "West evacuation boulevard", "evacuation_corridor", 1.20, 0.24),
+        ("university_campus_3", "suburb_shelter_5", "Shelter spine", "evacuation_corridor", 1.14, 0.18),
+        ("suburb_shelter_2", "north_reserve_6", "Reserve access road", "staging_route", 1.10, 0.14),
+        ("north_reserve_8", "downtown_core_0", "Responder ring road", "staging_route", 1.18, 0.20),
+        ("north_reserve_5", "hospital_med_1", "Responder hospital lane", "staging_route", 1.12, 0.18),
+        ("suburb_shelter_8", "downtown_core_6", "Southwest bypass", "bypass", 1.24, 0.26),
+        ("airport_gate_0", "downtown_core_7", "Visitor corridor", "arterial", 1.34, 0.35),
+        ("airport_gate_6", "suburb_shelter_0", "Outer evacuation ring", "evacuation_corridor", 1.42, 0.32),
+        ("industrial_port_8", "airport_gate_2", "Logistics airport connector", "freight", 1.50, 0.44),
+        ("university_campus_8", "river_island_1", "Pedestrian causeway", "causeway", 1.62, 0.48),
+        ("suburb_shelter_4", "university_campus_4", "Shelter campus connector", "evacuation_corridor", 1.08, 0.16),
+        ("north_reserve_4", "suburb_shelter_4", "Reserve shelter connector", "staging_route", 1.05, 0.12),
+        ("hospital_med_4", "downtown_core_4", "Medical command spine", "arterial", 1.14, 0.20),
+        ("industrial_port_4", "river_island_4", "Port choke tunnel", "tunnel", 2.08, 0.74),
+        ("airport_gate_4", "hospital_med_4", "Air medical corridor", "arterial", 1.22, 0.28),
+        ("downtown_core_1", "suburb_shelter_7", "Neighborhood evacuation loop", "evacuation_corridor", 1.26, 0.24),
+        ("north_reserve_1", "university_campus_0", "Northwest staging loop", "staging_route", 1.18, 0.18),
+        ("airport_gate_8", "industrial_port_5", "Fuel service road", "freight", 1.62, 0.52),
+        ("hospital_med_2", "river_island_7", "Ambulance bridge", "bridge", 1.80, 0.58),
+    ]
+    for args in connectors:
+        add_edge(*args)
+
+    return {
+        "name": "Social complex large urban response network",
+        "source_note": (
+            "Synthetic large urban hostile-contagion scenario with district roles, "
+            "chokepoints, bridges, staging routes, evacuation corridors, and "
+            "role-biased initial placement. It is designed as a topology and "
+            "sociotechnical complexity sensitivity study."
+        ),
+        "nodes": nodes,
+        "edges": edges,
+        "node_roles": node_roles,
+        "node_zones": node_zones,
+        "node_risk": node_risk,
+        "spawn_weights": spawn_weights,
+        "edge_profiles": edge_profiles,
+    }
+
+
+def _network_context(network: RoadNetwork) -> Dict[str, Any]:
+    role_counts: Dict[str, int] = {}
+    for roles in network.node_roles.values():
+        for role in roles:
+            role_counts[role] = role_counts.get(role, 0) + 1
+    hazardous_edges = [
+        {
+            "edge": [first, second],
+            "kind": profile.get("kind", "road"),
+            "hazard": round(float(profile.get("hazard", 0.0)), 3),
+            "travel_multiplier": round(float(profile.get("travel_multiplier", 1.0)), 3),
+        }
+        for (first, second), profile in network.edge_profiles.items()
+        if first < second and float(profile.get("hazard", 0.0)) >= 0.45
+    ]
+    hazardous_edges.sort(key=lambda item: item["hazard"], reverse=True)
+    return {
+        "scenario": network.scenario,
+        "map": network.name,
+        "node_count": len(network.nodes),
+        "edge_count": len(network.edges),
+        "role_counts": role_counts,
+        "zones": sorted(set(network.node_zones.values())),
+        "critical_nodes": {
+            role: network.role_nodes(role)
+            for role in ["hospital", "shelter", "staging_base", "airfield", "port", "bridgehead", "command"]
+            if network.role_nodes(role)
+        },
+        "high_hazard_edges": hazardous_edges[:10],
+    }
 
 
 class Policy:
@@ -393,6 +709,7 @@ class CodexResponsePolicy(RuleBasedResponsePolicy):
             "map": network.name,
             "objective": "minimize zombie clearance time while preserving civilians and defenders",
             "allowed_tactics": ["nearest_threat", "protect_civilians", "contain_hotspot"],
+            "network_context": _network_context(network),
             "state": history[-1] if history else {},
             "recent_history": history[-8:],
             "agent_counts": {
@@ -1230,10 +1547,14 @@ def _urban_tactic_score(
         )
         defender_exposure += nearby
     coverage = len(unique_targets) / max(len(defenders), 1)
+    facility_pressure = _critical_facility_pressure(network, zombies, civilians)
+    route_hazard = _mean_agent_route_hazard(network, list(defenders) + list(civilians))
     return float(
         clearance_weight * mean_distance
         + civilian_weight * mean_civilian_risk
         + defender_weight * defender_exposure / max(len(defenders), 1)
+        + 70.0 * facility_pressure
+        + 45.0 * route_hazard
         - coverage_weight * coverage
     )
 
@@ -1315,6 +1636,7 @@ def _urban_prompt_payload(
         "system": "urban hostile-contagion response on a road graph",
         "map": network.name,
         "objective": "minimize clearance time, civilian loss, defender loss, and hostile victory",
+        "network_context": _network_context(network),
         "state": history[-1] if history else {},
         "recent_history": history[-8:],
         "agent_counts": {
@@ -1574,7 +1896,7 @@ def run_repeated(
 ) -> Dict[str, List[RunResult]]:
     results = {}
     for policy in policies:
-        network = RoadNetwork(map_path)
+        network = RoadNetwork(map_path, scenario=config.scenario)
         policy_runs = runs.get(policy.name, 1) if isinstance(runs, dict) else runs
         policy_runs = max(1, int(policy_runs))
         results[policy.name] = []
@@ -1603,7 +1925,8 @@ def save_outputs(
     config: Optional[UrbanResponseConfig] = None,
 ) -> List[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    network = RoadNetwork(map_path)
+    scenario = config.scenario if config is not None else "default"
+    network = RoadNetwork(map_path, scenario=scenario)
     written = []
     for policy_name, runs in results.items():
         print(f"Saving outputs for {policy_name}...", flush=True)
@@ -1800,6 +2123,60 @@ def _pairwise_distances(source_positions: np.ndarray, target_positions: np.ndarr
     return np.sqrt(np.sum(deltas * deltas, axis=2))
 
 
+def _clip(value: float, low: float, high: float) -> float:
+    return float(min(high, max(low, value)))
+
+
+def _agent_route_hazard(network: RoadNetwork, agent: Agent) -> float:
+    edge_hazard = network.edge_hazard.get((agent.node, agent.target), 0.0)
+    node_hazard = 0.5 * (
+        network.node_risk.get(agent.node, 0.0) + network.node_risk.get(agent.target, 0.0)
+    )
+    return _clip(0.65 * edge_hazard + 0.35 * node_hazard, 0.0, 1.0)
+
+
+def _mean_agent_route_hazard(network: RoadNetwork, agents: Sequence[Agent]) -> float:
+    values = [_agent_route_hazard(network, agent) for agent in agents if agent.alive]
+    return float(np.mean(values)) if values else 0.0
+
+
+def _critical_facility_pressure(
+    network: RoadNetwork,
+    zombies: Sequence[Agent],
+    civilians: Sequence[Agent],
+) -> float:
+    critical_roles = {"hospital", "shelter", "staging_base", "airfield", "port", "command"}
+    critical_nodes = [
+        node
+        for node in network.nodes
+        if any(role in critical_roles for role in network.roles(node))
+    ]
+    if not critical_nodes:
+        return 0.0
+    zombie_counts = _counts_by_agent_node(zombies)
+    civilian_counts = _counts_by_agent_node(civilians)
+    pressure = 0.0
+    for node in critical_nodes:
+        local_zombies = zombie_counts.get(node, 0)
+        nearby_zombies = sum(zombie_counts.get(neighbor, 0) for neighbor in network.neighbors.get(node, []))
+        local_civilians = civilian_counts.get(node, 0)
+        pressure += (
+            0.55 * local_zombies
+            + 0.25 * nearby_zombies
+            + 0.035 * local_civilians * (local_zombies + nearby_zombies)
+            + network.node_risk.get(node, 0.0)
+        )
+    return _clip(pressure / max(18.0, 3.0 * len(critical_nodes)), 0.0, 1.0)
+
+
+def _counts_by_agent_node(agents: Sequence[Agent]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for agent in agents:
+        if agent.alive:
+            counts[agent.node] = counts.get(agent.node, 0) + 1
+    return counts
+
+
 def _move_zombies(
     network: RoadNetwork,
     zombies: Sequence[Agent],
@@ -1892,7 +2269,11 @@ def _route_away(network: RoadNetwork, mover: Agent, threat: Agent) -> None:
     threat_position = network.position(threat)
     best = max(
         network.neighbors[mover.node],
-        key=lambda node: float(np.linalg.norm(np.array(network.xy[node]) - threat_position)),
+        key=lambda node: (
+            float(np.linalg.norm(np.array(network.xy[node]) - threat_position))
+            - 180.0 * network.edge_hazard.get((mover.node, node), 0.0)
+            - 70.0 * network.node_risk.get(node, 0.0)
+        ),
     )
     mover.target = best
     mover.progress = min(mover.progress, 0.35)
@@ -1915,7 +2296,14 @@ def _zombie_contacts(
             continue
         if infected[index]:
             civilian.alive = False
-            if rng.random() < 0.5:
+            conversion_probability = _clip(
+                0.50
+                + 0.16 * _agent_route_hazard(network, civilian)
+                + 0.08 * network.node_risk.get(civilian.node, 0.0),
+                0.28,
+                0.86,
+            )
+            if rng.random() < conversion_probability:
                 converted.append(Agent("zombie", civilian.node, civilian.target, civilian.progress))
     return converted
 
@@ -1949,12 +2337,18 @@ def _zombie_defender_contacts(
             density_scale = 1.0 + 1.85 * max(0, contact_count - 1)
             base_risk = 0.55 if baseline_mode else 0.18
             ratio_scale = 1.0 + (0.35 * force_ratio if baseline_mode else 0.0)
-            risk = min(0.995, base_risk * density_scale * ratio_scale)
+            hazard_scale = 1.0 + 0.38 * _agent_route_hazard(network, defender)
+            risk = min(0.995, base_risk * density_scale * ratio_scale * hazard_scale)
         else:
             if baseline_mode:
-                risk = min(0.35, 0.012 * pressure_count + 0.018 * force_ratio)
+                risk = min(
+                    0.35,
+                    0.012 * pressure_count
+                    + 0.018 * force_ratio
+                    + 0.030 * _agent_route_hazard(network, defender),
+                )
             else:
-                risk = min(0.08, 0.002 * pressure_count)
+                risk = min(0.08, 0.002 * pressure_count + 0.010 * _agent_route_hazard(network, defender))
         if rng.random() < risk:
             defender.alive = False
             losses += 1
@@ -1990,8 +2384,21 @@ def _defender_engagements(
         density_scale = 1.0 + 0.35 * max(0, density - 1)
         target_index = min(nearby_indices, key=lambda zombie_index: distances[defender_index, zombie_index])
         target = zombies[target_index]
-        neutralize_prob = min(0.95, config.neutralization_probability * (0.20 if baseline_mode else 1.0) / density_scale)
-        casualty_prob = min(0.995, config.defender_casualty_probability * density_scale * (1.25 if baseline_mode else 1.0))
+        hazard = _agent_route_hazard(network, defender)
+        neutralize_prob = min(
+            0.95,
+            config.neutralization_probability
+            * (0.20 if baseline_mode else 1.0)
+            * max(0.58, 1.0 - 0.24 * hazard)
+            / density_scale,
+        )
+        casualty_prob = min(
+            0.995,
+            config.defender_casualty_probability
+            * density_scale
+            * (1.25 if baseline_mode else 1.0)
+            * (1.0 + 0.32 * hazard),
+        )
         if rng.random() < neutralize_prob:
             target.alive = False
             neutralized += 1
